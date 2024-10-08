@@ -1,14 +1,14 @@
 %DEFINE endline	0x0A
 %DEFINE car_ret 0x0D
 
-global set_videomode
-global cls
-global newline
-global print_char
-global print_string
-global clear_buf
-global cls_col
-section .text
+;global set_videomode
+;global cls
+;global newline
+;global print_char
+;global print_string
+;global clear_buf
+;global cls_col
+;global print_hex
 
 cls:
 	push ax
@@ -80,6 +80,37 @@ print_string:		;Аргумент (указатель на строку) в bx, �
 	inc bx
 	jmp .loop
 .end:
+	pop ax
+	ret
+
+print_hex:		;Принимает число в DX
+	push ax
+	push bx
+	push cx
+	push dx
+	push 0xFFFF
+.loop:
+	mov ax, dx
+	and ax, 0x000F
+	push ax
+	shr dx, 4
+	cmp dx, 0
+	je .outloop
+	jmp .loop
+.outloop:
+	pop ax
+	cmp ax, 0xFFFF
+	je .end
+	mov bx, hex
+	add bx, ax
+	mov al, byte[bx]
+	mov ah, 0x0E
+	int 0x10
+	jmp .outloop
+.end:
+	pop dx
+	pop cx
+	pop bx
 	pop ax
 	ret
 

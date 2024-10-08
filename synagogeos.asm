@@ -60,8 +60,16 @@ boot:
 	mov dx, 0x4B40
 	call delay
 	call cls
+	mov dx, 0x2024
+	call day_of_week	
 	jmp $
 	
+.print_shabbat:
+	mov bx, shabbat
+	call print_string
+	jmp $
+	
+
 print_logo:
 	mov bx, logo
 	call print_string
@@ -69,7 +77,13 @@ print_logo:
 
 %INCLUDE "iolib.asm"
 %INCLUDE "timelib.asm"
+%INCLUDE "mathlib.asm"
 
 logo db 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, "                                       /\                                       ", "                                      /  \                                      ", "                                _____/____\_____                                ", "                                \   /      \   /                                ", "                                 \ /        \ /                                 ", "                                  \          /                                  ", "                                 / \        / \                                 ", "                                /___\ _____/___\                                ", "                                     \    /                                     ", "                                      \  /                                      ", "                                       \/                                       ", "                     SHALOM FROM SYNAGOGE OS BY PUBLIC_V0ID                     ", 0x00
+
+shabbat db "SHABBAT SHALOM!", 0x00
+notshabbat db "Got to work today...", 0x00
+
+hex db "0123456789ABCDEF", 0x00
 
 times 2560 - ($ - $$) db 0
