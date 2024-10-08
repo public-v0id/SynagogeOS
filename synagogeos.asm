@@ -1,5 +1,7 @@
 org 0x7c00			;Загрузчик выгружается в ОЗУ по адресу 0x7c00
 
+%DEFINE cursor '>'
+
 jmp pre_boot
 
 pre_boot:
@@ -61,14 +63,15 @@ boot:
 	call delay
 	call cls
 	mov dx, 0x2024
-	call day_of_week	
+	call day_of_week
+	cmp ax, 0
+	je .reboot
+	mov dx, cursor
+	call print_char
 	jmp $
 	
-.print_shabbat:
-	mov bx, shabbat
-	call print_string
-	jmp $
-	
+.reboot:
+	int 0x19
 
 print_logo:
 	mov bx, logo

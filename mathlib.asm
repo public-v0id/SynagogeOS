@@ -28,6 +28,9 @@ date_to_hex:		;DX - аргумент, DX:AX - вывод. Использует a
 	ret
 
 day_of_week:		;Вывод в ax
+	push bx
+	push cx
+	push dx
 	call get_date	;Получаем год  в cx
 	mov dx, cx
 	mov dl, dh
@@ -87,6 +90,10 @@ day_of_week:		;Вывод в ax
 	mov ax, cx
 	xor dx, dx
 	idiv bx
+	mov ax, dx
+	pop dx
+	pop cx
+	pop bx
 	ret
 .janfeb:
 	add ax, 12
