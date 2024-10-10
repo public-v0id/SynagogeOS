@@ -24,7 +24,7 @@ cls:
 	xor al, al	;Очистка экрана
 	xor cx, cx	;Верхний левый угол
 	mov dx, 0x184F	;Нижний правый угол (80*25, 18 - 24, 4F - 79)
-	mov bh, 0x0F
+	mov bh, 0x07
 	int 0x10
 	mov bh, 0x00
 	mov dx, 0x0000
@@ -122,16 +122,18 @@ print_hex:		;Принимает число в DX
 	pop ax
 	ret
 
-clear_buf:		;Принимает указатель на буфер в bx, кол-во байт в cx
+clear_buf:		;Принимает указатель на буфер в bx, кол-во байт в dx
 	push ax
+	push bx
 	xor ax, ax
 .loop:
-	cmp ax, cx
+	cmp ax, dx
 	je .end
 	mov byte[bx], 0
 	inc ax
 	inc bx
 .end:
+	pop bx
 	pop ax
 	ret
 
@@ -142,6 +144,7 @@ read_char:		;Возвращает в ax введенный символ
 	ret
 
 read_cmd:		;Принимает на вход указатель на буфер в bx, размер буфера в dx. Возвращает в ax результат ввода (0 - ошибка)
+	call clear_buf
 	push bx
 	push cx
 	xor cx, cx
@@ -209,3 +212,27 @@ read_cmd:		;Принимает на вход указатель на буфер 
 	pop cx
 	pop bx
 	ret
+
+string_equals:		;Принимает два указателя на строку в bx и dx. Выдает 1 в ax, если строки равны, 0 если нет
+	push si
+	push bx
+	mov si, dx
+.loop:
+	mov al, byte[bx]
+	cmp byte[si], al
+	jne .noteq
+	cmp byte[bx], 0
+	je .loop
+	inc bx
+	inc si
+.eq:
+	pop bx
+	pop si
+	mov ax, 1
+	ret
+.noteq:
+	xor ax, ax
+	pop bx
+	pop si
+	ret
+	
