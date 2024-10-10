@@ -1,7 +1,7 @@
 org 0x7c00			;Загрузчик выгружается в ОЗУ по адресу 0x7c00
 
 %DEFINE cursor '>'
-
+%DEFINE bufsize 255
 jmp pre_boot
 
 pre_boot:
@@ -66,13 +66,24 @@ boot:
 	call day_of_week
 	cmp ax, 0
 	je .reboot
+	jmp .inploop
+.inploop:
 	mov dx, cursor
 	call print_char
-	jmp $
-	
+	mov dx, bufsize
+	mov bx, buffer
+	call read_cmd
+	call newline
+	cmp ax, 0x0000
+	je .inperror
+	jmp .inploop
 .reboot:
 	int 0x19
-
+.inperror:
+	mov bx, inperror
+	call print_string
+	call newline
+	jmp .inploop
 print_logo:
 	mov bx, logo
 	call print_string
@@ -83,10 +94,10 @@ print_logo:
 %INCLUDE "mathlib.asm"
 
 logo db 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, "                                       /\                                       ", "                                      /  \                                      ", "                                _____/____\_____                                ", "                                \   /      \   /                                ", "                                 \ /        \ /                                 ", "                                  \          /                                  ", "                                 / \        / \                                 ", "                                /___\ _____/___\                                ", "                                     \    /                                     ", "                                      \  /                                      ", "                                       \/                                       ", "                     SHALOM FROM SYNAGOGE OS BY PUBLIC_V0ID                     ", 0x00
-
+inperror db "INPUT ERROR!", 0x00
 shabbat db "SHABBAT SHALOM!", 0x00
 notshabbat db "Got to work today...", 0x00
-
+buffer times bufsize+1 db 0x00
 hex db "0123456789ABCDEF", 0x00
 
 times 2560 - ($ - $$) db 0
