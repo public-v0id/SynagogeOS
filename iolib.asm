@@ -8,7 +8,7 @@
 %DEFINE keyserv_int 0x16
 %DEFINE readchar 0x00
 %DEFINE backspace 0x08
-
+%DEFINE esc 0x11B
 ;global set_videomode
 ;global cls
 ;global newline
@@ -132,6 +132,7 @@ clear_buf:		;Принимает указатель на буфер в bx, кол
 	mov byte[bx], 0
 	inc ax
 	inc bx
+	jmp .loop
 .end:
 	pop bx
 	pop ax
@@ -222,9 +223,10 @@ string_equals:		;Принимает два указателя на строку 
 	cmp byte[si], al
 	jne .noteq
 	cmp byte[bx], 0
-	je .loop
+	je .eq
 	inc bx
 	inc si
+	jmp .loop
 .eq:
 	pop bx
 	pop si
@@ -235,4 +237,186 @@ string_equals:		;Принимает два указателя на строку 
 	pop bx
 	pop si
 	ret
-	
+
+command_equals:		;Принимает два указателя: на введенную команду в bx и на прототип нужной команды в dx. Выдает 1 в ax в случае равенства, иначе 0	
+	push si
+	push bx
+	mov si, dx
+.loop:
+	mov al, byte[si]
+	cmp al, 0
+	jne .keeploop
+	cmp byte[bx], inpend
+	je .eq
+	cmp byte[bx], space
+	je .eq
+	cmp byte[bx], tab
+	je .eq
+	cmp byte[bx], endline
+	je .eq
+.noteq
+	xor ax, ax
+	pop bx
+	pop si
+	ret
+.keeploop:
+	cmp byte[bx], al
+	jne .noteq
+	inc bx
+	inc si
+	jmp .loop
+.eq:
+	pop bx
+	pop si
+	mov ax, 1
+	ret
+
+
+getarg:			;Принимает указатель на введенную команду в bx, указатель на буфер ответа в si и номер аргумента в dx. Меняет значение [si]
+	push ax
+	push bx
+	push si
+	xor ax, ax
+.loop:
+	cmp ax, dx
+	je .writeloop
+	cmp byte[bx], inpend
+	je .end
+	cmp byte[bx], space
+	je .newword
+	cmp byte[bx], tab
+	je .newword
+	inc bx
+	jmp .loop
+.newword:
+	inc bx
+	inc ax
+	jmp .loop
+.writeloop:
+	cmp byte[bx], space
+	je .end
+	cmp byte[bx], tab
+	je .end
+	cmp byte[bx], inpend
+	je .end
+	mov al, byte[bx]
+	mov byte[si], al
+	inc bx
+	inc si
+	jmp .writeloop
+.end:
+	pop si
+	pop bx
+	pop ax
+	ret
+
+hexstrtohex:		;Принимает указатель на строку в bx, возвращает значение строки в ax
+	push bx
+	push dx
+	xor ax, ax
+	xor dx, dx
+.loop:
+	cmp byte[bx], inpend
+	je .end
+	cmp byte[bx], '0'
+	jl .end
+	cmp byte[bx], 'F'
+	jg .end
+	cmp byte[bx], '9'
+	jle .number
+	cmp byte[bx], 'A'
+	jge .letter
+	jmp .end
+.number:
+	shl ax, 4
+	mov dl, byte[bx]
+	sub dx, '0'
+	jmp .loopfin
+.letter:
+	shl ax, 4
+	mov dl, byte[bx]
+	sub dx, 'A'
+	add dx, 0xA
+.loopfin
+	add ax, dx
+	inc bx
+	jmp .loop
+.end:
+	pop dx
+	pop bx
+	ret
+
+readtext:		;Принимает на вход указатель на буфер в bx, размер буфера в dx. Возвращает в ax результат ввода (0 - ошибка)
+	call clear_buf
+	push bx
+	push cx
+	xor cx, cx
+.inploop:
+	cmp cx, dx
+	jae .error
+	mov ah, readchar
+	int keyserv_int
+	cmp al, backspace
+	je .inpbsp
+	cmp ax, esc
+	je .end
+	cmp al, inpend
+	je .end
+	mov ah, tty
+	int video_int
+	cmp al, car_ret
+	jne .save
+	mov al, endline
+	int video_int
+.save:
+	mov byte[bx], al
+	inc bx
+	inc cx
+	jmp .inploop
+.inpbsp:
+	cmp cx, 0x00
+	je .inploop
+	mov ah, tty
+	mov al, backspace
+	int video_int
+	mov al, space
+	int video_int
+	mov al, backspace
+	int video_int
+	dec bx
+	dec cx
+	jmp .inploop
+.error:
+	pop cx
+	pop bx
+	xor ax, ax
+	ret
+.end:
+	mov byte[bx], 0x00
+	pop cx
+	pop bx
+	ret
+
+printdir:			;Принимает указатель на директорию в bx
+	push ax
+	push bx
+	push cx
+	inc bx
+	mov ah, 0x0E
+	xor cx, cx
+.loop:
+	cmp cx, 13
+	je .end
+	mov al, byte[bx]
+	cmp al, 0
+	je .next
+	int 0x10
+.next:
+	inc cx
+	inc bx
+	jmp .loop
+.end:
+	pop cx
+	pop bx
+	pop ax
+	ret

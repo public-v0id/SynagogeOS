@@ -1,0 +1,11 @@
+FILE:
+fnnnnnnnnnnnnd...d
+f - flags
+n - name
+d - data
+DIR:
+fnnnnnnnnnnnneeet...t
+f - flags
+n - name
+e - end pointer
+t - table (31*16 bytes)
