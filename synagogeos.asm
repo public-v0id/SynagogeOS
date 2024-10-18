@@ -158,6 +158,8 @@ freadsec:
 	mov bx, buffer
 	mov dx, 1
 	call getarg
+	cmp byte[si], 0x00
+	je argerror
 	mov bx, argbuf
 	call hexstrtohex	;номер сектора
 	mov cl, al
@@ -194,9 +196,11 @@ fwtext:
 	mov dx, 1
 	mov si, argbuf
 	call getarg
-	mov bx, argbuf
-	mov ax, 13
-	call hexprint
+	cmp byte[si], 0x00
+	je argerror
+;	mov bx, argbuf
+;	mov ax, 13
+;	call hexprint
 	mov dx, 512
 	mov bx, filebuf
 	call clear_buf
@@ -212,26 +216,27 @@ fwtext:
 	je .error
 	mov cx, [newfilesec]
 	mov dx, cx
-	call print_hex
-	call newline
+;	call print_hex
+;	call newline
 	mov bx, filebuf
 	call writesector
-	jc .error
+	jc .error		;Запись файла в сектор диска
 	mov bx, curdirbuf	
 	mov dx, bx
-	call print_hex
-	call newline
-	add bx, [curdirbuf+14]
+;	call print_hex
+;	call newline
+	add bx, [curdirbuf+14]	;Находим место, куда можно поместить новый файл в таблице
 	mov dx, bx
-	call print_hex
-	call newline
+;	call print_hex
+;	call newline
 	mov dx, [curdirbuf+14]
-	add dx, 0xE
+	add dx, 0xF
 	mov [curdirbuf+14], dx
-	mov si, argbuf
+	mov si, argbuf		;Записываем название файла
 	call setfilename
 	add bx, 14
-	mov dx, [newfilesec]
+	mov dx, [newfilesec]	;Указатель на послдний записанный сектор файла
+	mov word[bx], dx
 	mov word[bx], dx
 	mov cx, 0x000C
 	mov bx, curdirbuf
@@ -246,12 +251,79 @@ fwtext:
 	mov [bx], dx
 	mov cx, 0x000B
 	call writesector
+	call newline
 	jmp inploop
 .error:
 	mov bx, diskwriteerror
 	call print_string
 	jmp inploop
+argerror:
+	mov bx, argnotfounderror
+	call print_string
+	jmp inploop
 fread:
+	mov bx, argbuf
+	mov dx, 13
+	call clear_buf
+	mov si, argbuf
+	mov bx, buffer
+	mov dx, 1
+	call getarg
+	cmp byte[si], 0x00
+	je argerror
+	mov bx, curdirbuf
+	add bx, 16
+	mov dx, argbuf
+	mov cx, 16
+.searchloop:			;Поиск файла в каталоге
+	cmp cx, 512
+	jge .notfound
+	cmp byte[bx], 0
+	je .notfound
+	call string_equals
+	cmp ax, 1
+	je .end
+	add bx, 15
+	add cx, 15
+	jmp .searchloop
+.end:
+	mov cx, word[bx+13]
+	mov dx, cx
+;	call print_hex
+	mov bx, filebuf		;Адрес загрузки данных
+	call readsector
+	cmp byte[bx], 0x00
+	jne .dirorex
+	add bx, 13
+	call print_string
+	call newline
+	jmp inploop
+.notfound:
+	mov bx, filenotfounderror
+	call print_string
+	jmp inploop
+.dirorex:
+	mov bx, dirorexerror
+	call print_string
+	jmp inploop
+fdir:
+	mov bx, curdirbuf
+	inc bx
+	call print_string
+	call newline
+	add bx, 15
+	mov cx, 16
+.loop:
+	cmp byte[bx], 0
+	je .end
+	cmp cx, 512
+	jge .end
+	call print_string
+	call newline
+	add bx, 15
+	add cx, 15
+	jmp .loop
+.end:
 	jmp inploop
 	
 %INCLUDE "iolib.asm"
@@ -270,14 +342,18 @@ help db "help", 0x00
 readsec db "readsec", 0x00
 wtext db "wtext", 0x00
 read db "read", 0x00
-helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, 0
-com dw help, readsec, wtext, read, 0x00
-resp dd fhelp, freadsec, fwtext, fread, 0x00
+dir db "dir", 0x00
+helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, "read *filename* to read a file", 0x0A, 0x0D, "dir to read current directory", 0x0A, 0x0D, 0
+com dw help, readsec, wtext, read, dir, 0x00
+resp dd fhelp, freadsec, fwtext, fread, fdir, 0x00
 unkcmd db "Sorry! Unknown command ", 0x22, 0
 unkcmd2 db 0x22, "!", 0x0A, 0x0D, 0
 readsuccess db "READ SUCCESSFUL!", 0x0A, 0x0D, 0
 diskreaderror db "ERROR! Couldn't read data from disk", 0x0A, 0x0D, 0
 diskwriteerror db "ERROR! Couldn't write data to disk", 0x0A, 0x0D, 0
+argnotfounderror db "ERROR! Necessary argument not found!", 0x0A, 0x0D, 0
+filenotfounderror db "ERROR! File not found!", 0x0A, 0x0D, 0
+dirorexerror db "ERROR! Can't read directory or executable file!", 0x0A, 0x0D, 0
 seccount db 0x00
 newfilesec dw 0x00
 curdirbuf times 512 db 0x00

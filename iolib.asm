@@ -77,6 +77,8 @@ print_char:		;Аргумент лежит в dx
 
 print_string:		;Аргумент (указатель на строку) в bx, возвращает в cx кол-во символов
 	push ax
+	push bx
+	push cx
 	mov ah, 0x0E
 	xor cx, cx
 .loop:
@@ -88,6 +90,8 @@ print_string:		;Аргумент (указатель на строку) в bx, �
 	inc bx
 	jmp .loop
 .end:
+	pop cx
+	pop bx
 	pop ax
 	ret
 
