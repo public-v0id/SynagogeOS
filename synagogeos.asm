@@ -3,7 +3,7 @@ org 0x7c00			;Загрузчик выгружается в ОЗУ по адре�
 %DEFINE cursor '>'
 %DEFINE bufsize 255
 %DEFINE filebufsize 511
-
+%DEFINE startdir 0x000D
 jmp pre_boot
 
 pre_boot:
@@ -64,12 +64,12 @@ boot:
 	mov ah, 0x08
 	int 0x13
 	mov bx, filebuf
-	mov cx, 0x000B
+	mov cx, startdir-1
 	call readsector
 	mov dx, [bx]
 	mov [newfilesec], dx
 	mov bx, curdirbuf
-	mov cx, 0x000C
+	mov cx, startdir
 	call readsector
 	mov byte[seccount], cl
 	mov cx, 0x004C
@@ -189,67 +189,85 @@ freadsec:
 	call newline
 	jmp inploop
 fwtext:
-	mov dx, 13
+	mov dx, 13		;Очистка буферов
 	mov bx, argbuf
 	call clear_buf
-	mov bx, buffer
+	mov bx, buffer		;Буфер ввода
 	mov dx, 1
 	mov si, argbuf
-	call getarg
+	call getarg		;Узнаем название файла
 	cmp byte[si], 0x00
 	je argerror
-;	mov bx, argbuf
-;	mov ax, 13
-;	call hexprint
-	mov dx, 512
+	mov dx, 512		
 	mov bx, filebuf
 	call clear_buf
 	mov byte[bx], 0x00	;Текстовый файл
 	mov si, argbuf
 	mov bx, filebuf
-	call setfilename
+	call setfilename	;В буфер нового файла пишется его название
 	mov dx, 499
 	mov bx, filebuf
 	add bx, 13		;1 байт - флаги, 12 байт - название. Содержимое файла начинается с 13 байта
-	call readtext
+	call readtext		;Считываем данные с клавиатуры
 	cmp ax, 0x0
 	je .error
-	mov cx, [newfilesec]
-	mov dx, cx
+;	mov dx, cx
 ;	call print_hex
 ;	call newline
+	mov cx, [newfilesec]	;Теперь в секторе newfilesec лежит сектор с файлом
 	mov bx, filebuf
-	call writesector
-	jc .error		;Запись файла в сектор диска
+;	mov dx, cx
+;	call print_hex
+;	call newline
+	call writesector	
+	inc cx
+	mov [newfilesec], cx
+	jc .error		;Запись файла в сектор диска. Переходим к работе с директорией
+.nextdirloop:
+	cmp word[curdirbuf+14], 0x1E0
+	jle .writetable
+	cmp word[curdirbuf+510], 0x0000
+	je .newdir
+	mov bx, curdirbuf
+	mov dx, word[curdirbuf+510]
+	mov cx, dx
+	mov [curdirsec], dx
+;	call print_hex
+;	call newline
+	call readsector
+	jmp .nextdirloop
+.writetable:
 	mov bx, curdirbuf	
-	mov dx, bx
-;	call print_hex
-;	call newline
 	add bx, [curdirbuf+14]	;Находим место, куда можно поместить новый файл в таблице
-	mov dx, bx
-;	call print_hex
-;	call newline
-	mov dx, [curdirbuf+14]
-	add dx, 0xF
-	mov [curdirbuf+14], dx
 	mov si, argbuf		;Записываем название файла
 	call setfilename
 	add bx, 14
-	mov dx, [newfilesec]	;Указатель на послдний записанный сектор файла
+	mov dx, [newfilesec]	;Указатель на расположение файла (newfilesec)
+	dec dx
 	mov word[bx], dx
-	mov word[bx], dx
-	mov cx, 0x000C
+	mov dx, [curdirbuf+14]	;Записываем место, куда можно будет поместить новый файл в таблице
+	add dx, 0xF
+	mov [curdirbuf+14], dx
+.writecurdir:
+	mov cx, word[curdirsec]		;Записываем сектор с текущей директорией
 	mov bx, curdirbuf
+;	push dx
+;	mov dx, cx
+;	call print_hex
+;	call newline
+;	pop dx
 	call writesector
-	mov bx, filebuf
+	mov cx, startdir
+	mov bx, curdirbuf
+	call readsector			;Возвращаем в буфер директории стартовый адрес и переходим к работе со скрытым файлом
+.writesecfile:
+	mov bx, filebuf		;Очищаем буфер файла (будем редактировать скрытый файл с системной информацией, сектор B)
 	mov dx, 512
 	call clear_buf
-	mov bx, filebuf
+	mov bx, filebuf		
 	mov dx, [newfilesec]
-	inc dx
-	mov [newfilesec], dx
-	mov [bx], dx
-	mov cx, 0x000B
+	mov [bx], dx		
+	mov cx, startdir-1
 	call writesector
 	call newline
 	jmp inploop
@@ -257,6 +275,37 @@ fwtext:
 	mov bx, diskwriteerror
 	call print_string
 	jmp inploop
+.newdir:
+	mov dx, word[newfilesec]
+	mov word[curdirbuf+510], dx
+	mov cx, word[curdirsec]		;Записываем сектор с текущей директорией
+;	push dx
+;	mov dx, cx
+;	call newline
+;	call print_hex
+;	call newline
+;	pop dx
+	mov bx, curdirbuf
+	call writesector
+	mov word[curdirsec], dx
+	inc dx
+	mov word[newfilesec], dx
+	mov dx, 512		
+	mov bx, curdirbuf
+	call clear_buf
+	mov word[curdirbuf+14], 0x000F
+	mov bx, curdirbuf
+	add bx, [curdirbuf+14]
+	mov si, argbuf		;Записываем название файла
+	call setfilename
+	add bx, 14
+	mov dx, [newfilesec]	;Указатель на расположение файла (newfilesec)
+	sub dx, 2
+	mov word[bx], dx
+	mov dx, [curdirbuf+14]	;Записываем место, куда можно будет поместить новый файл в таблице
+	add dx, 0xF
+	mov [curdirbuf+14], dx
+	jmp .writecurdir
 argerror:
 	mov bx, argnotfounderror
 	call print_string
@@ -276,8 +325,12 @@ fread:
 	mov dx, argbuf
 	mov cx, 16
 .searchloop:			;Поиск файла в каталоге
-	cmp cx, 512
-	jge .notfound
+	push dx
+	mov dx, bx
+;	call print_hex
+	pop dx
+	cmp cx, 0x1F0
+	jge .nextpage
 	cmp byte[bx], 0
 	je .notfound
 	call string_equals
@@ -297,14 +350,37 @@ fread:
 	add bx, 13
 	call print_string
 	call newline
+	mov bx, curdirbuf
+	mov cx, startdir
+	call readsector
 	jmp inploop
+.nextpage:
+	mov bx, curdirbuf
+	add bx, 510
+	cmp word[bx], 0x0000
+	je .notfound
+	mov cx, word[bx]
+;	mov dx, cx
+;	call newline
+;	call print_hex
+;	call newline
+	mov bx, curdirbuf
+	call readsector
+	add bx, 16
+	mov dx, argbuf
+	mov cx, 16
+	jmp .searchloop
 .notfound:
 	mov bx, filenotfounderror
 	call print_string
+	mov bx, curdirbuf
+	mov cx, startdir
+	call readsector
 	jmp inploop
 .dirorex:
 	mov bx, dirorexerror
 	call print_string
+	call newline
 	jmp inploop
 fdir:
 	mov bx, curdirbuf
@@ -314,17 +390,41 @@ fdir:
 	add bx, 15
 	mov cx, 16
 .loop:
+	mov dx, cx
+	cmp cx, 0x1E1
+	jg .nextpage
 	cmp byte[bx], 0
 	je .end
-	cmp cx, 512
-	jge .end
+	mov dx, cx
 	call print_string
 	call newline
 	add bx, 15
 	add cx, 15
 	jmp .loop
 .end:
+	mov bx, curdirbuf
+	mov cx, startdir
+	call readsector
 	jmp inploop
+.nextpage:
+	mov bx, curdirbuf
+	add bx, 510
+;	mov dx, word[bx]
+;	call newline
+;	call print_hex
+;	call newline
+;	call newline
+	cmp word[bx], 0x0000
+	je .end
+	mov cx, word[bx]
+	mov dx, cx
+	mov bx, curdirbuf
+	call readsector
+	add bx, 16
+	mov dx, argbuf
+	mov cx, 16
+	jmp .loop
+
 	
 %INCLUDE "iolib.asm"
 %INCLUDE "timelib.asm"
@@ -355,12 +455,15 @@ argnotfounderror db "ERROR! Necessary argument not found!", 0x0A, 0x0D, 0
 filenotfounderror db "ERROR! File not found!", 0x0A, 0x0D, 0
 dirorexerror db "ERROR! Can't read directory or executable file!", 0x0A, 0x0D, 0
 seccount db 0x00
+curdirsec dw startdir
 newfilesec dw 0x00
 curdirbuf times 512 db 0x00
 filebuf times 512 db 0x00
-times 5120 - ($-$$) db 0
-dw 0xD
 times 5632 - ($-$$) db 0
-db 0x03, '.'			;Каталог .
+dw startdir+2
+times 6144 - ($-$$) db 0
+db 0x03, '.'			;каталог .
 times 11 db 0x00
 db 0x00, 0x0F, 0x00
+times 494 db 0x00
+dw 0x0000
