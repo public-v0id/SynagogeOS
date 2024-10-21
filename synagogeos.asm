@@ -3,7 +3,10 @@ org 0x7c00			;Загрузчик выгружается в ОЗУ по адре�
 %DEFINE cursor '>'
 %DEFINE bufsize 255
 %DEFINE filebufsize 511
-%DEFINE startdir 0x000D
+%DEFINE startdir 0x000F
+%DEFINE directory 2
+%DEFINE exec 1
+%DEFINE readable 0
 jmp pre_boot
 
 pre_boot:
@@ -14,7 +17,7 @@ pre_boot:
 	mov ds, ax		;Зануление регистров
 	mov sp, 0x7c00		;Инициализация стека
 	mov ah, 0x02		;0x02 - работа с жестким диском
-	mov al, 0x09		;Читаем 7 секторов
+	mov al, 0xC		;Читаем 7 секторов
 	mov ch, 0x00		;Номер цилиндра
 	mov cl, 0x02		;Начальный сектор. 1 сектор занимает загрузчик
 	mov dh, 0x00		;Сторона диска
@@ -189,6 +192,7 @@ freadsec:
 	call newline
 	jmp inploop
 fwtext:
+.wfile:
 	mov dx, 13		;Очистка буферов
 	mov bx, argbuf
 	call clear_buf
@@ -201,7 +205,7 @@ fwtext:
 	mov dx, 512		
 	mov bx, filebuf
 	call clear_buf
-	mov byte[bx], 0x00	;Текстовый файл
+	mov byte[bx], 0b0001	;Текстовый файл
 	mov si, argbuf
 	mov bx, filebuf
 	call setfilename	;В буфер нового файла пишется его название
@@ -209,21 +213,68 @@ fwtext:
 	mov bx, filebuf
 	add bx, 13		;1 байт - флаги, 12 байт - название. Содержимое файла начинается с 13 байта
 	call readtext		;Считываем данные с клавиатуры
+	call newline
 	cmp ax, 0x0
-	je .error
+	je dwerror
 ;	mov dx, cx
 ;	call print_hex
 ;	call newline
-	mov cx, [newfilesec]	;Теперь в секторе newfilesec лежит сектор с файлом
+.searchfile:
+	mov dx, argbuf
+	call findfileordir
+	cmp cx, 0
+	je newsec
+	mov [newfilesec], cx
+oldsec:				;Перезаписываем старый сектор + вся сопутствующая логика
+	mov bx, rewriting
+	call print_string
 	mov bx, filebuf
-;	mov dx, cx
-;	call print_hex
-;	call newline
 	call writesector	
 	inc cx
 	mov [newfilesec], cx
-	jc .error		;Запись файла в сектор диска. Переходим к работе с директорией
-.nextdirloop:
+	jc dwerror		;Запись файла в сектор диска. Переходим к работе с директорией
+	jmp writesecfile
+fmkdir:
+	mov dx, 13		;Очистка буферов
+	mov bx, argbuf
+	call clear_buf
+	mov bx, buffer		;Буфер ввода
+	mov dx, 1
+	mov si, argbuf
+	call getarg		;Узнаем название директории
+	cmp byte[si], 0x00
+	je argerror
+.searchdir:
+	mov dx, argbuf
+	call findfileordir
+	cmp cx, 0
+	jne .exists
+	mov dx, 512		
+	mov bx, filebuf
+	call clear_buf
+	mov byte[bx], 0b0101	;Каталог
+	mov si, argbuf
+	mov bx, filebuf
+	call setfilename	;В буфер новой директории пишется ее название
+	mov byte[bx+14], 0x1E
+	mov byte[bx+16], '.'
+	mov byte[bx+17], '.'
+	mov dx, [curdirstsec]
+	mov word[bx+29], dx
+	jmp newsec
+.exists:
+	mov bx, direxistserror
+	call print_string
+	jmp inploop
+newsec:				;Новый файл пишется в новый сектор + вся сопутствующая логика
+	mov cx, [newfilesec]	;Теперь в секторе newfilesec лежит сектор с файлом
+	call findfreesec
+	mov bx, filebuf
+	call writesector	
+	inc cx
+	mov [newfilesec], cx
+	jc dwerror		;Запись файла в сектор диска. Переходим к работе с директорией
+.newnextdirloop:			;nextdirloop и запись каталога в случае, если файл записан в новый сектор (в конец каталога надо внести новые данные)
 	cmp word[curdirbuf+14], 0x1E0
 	jle .writetable
 	cmp word[curdirbuf+510], 0x0000
@@ -232,10 +283,8 @@ fwtext:
 	mov dx, word[curdirbuf+510]
 	mov cx, dx
 	mov [curdirsec], dx
-;	call print_hex
-;	call newline
 	call readsector
-	jmp .nextdirloop
+	jmp .newnextdirloop
 .writetable:
 	mov bx, curdirbuf	
 	add bx, [curdirbuf+14]	;Находим место, куда можно поместить новый файл в таблице
@@ -248,43 +297,11 @@ fwtext:
 	mov dx, [curdirbuf+14]	;Записываем место, куда можно будет поместить новый файл в таблице
 	add dx, 0xF
 	mov [curdirbuf+14], dx
-.writecurdir:
-	mov cx, word[curdirsec]		;Записываем сектор с текущей директорией
-	mov bx, curdirbuf
-;	push dx
-;	mov dx, cx
-;	call print_hex
-;	call newline
-;	pop dx
-	call writesector
-	mov cx, startdir
-	mov bx, curdirbuf
-	call readsector			;Возвращаем в буфер директории стартовый адрес и переходим к работе со скрытым файлом
-.writesecfile:
-	mov bx, filebuf		;Очищаем буфер файла (будем редактировать скрытый файл с системной информацией, сектор B)
-	mov dx, 512
-	call clear_buf
-	mov bx, filebuf		
-	mov dx, [newfilesec]
-	mov [bx], dx		
-	mov cx, startdir-1
-	call writesector
-	call newline
-	jmp inploop
-.error:
-	mov bx, diskwriteerror
-	call print_string
-	jmp inploop
+	jmp writecurdir
 .newdir:
 	mov dx, word[newfilesec]
 	mov word[curdirbuf+510], dx
 	mov cx, word[curdirsec]		;Записываем сектор с текущей директорией
-;	push dx
-;	mov dx, cx
-;	call newline
-;	call print_hex
-;	call newline
-;	pop dx
 	mov bx, curdirbuf
 	call writesector
 	mov word[curdirsec], dx
@@ -305,30 +322,39 @@ fwtext:
 	mov dx, [curdirbuf+14]	;Записываем место, куда можно будет поместить новый файл в таблице
 	add dx, 0xF
 	mov [curdirbuf+14], dx
-	jmp .writecurdir
+writecurdir:
+	mov cx, word[curdirsec]		;Записываем сектор с текущей директорией
+	mov bx, curdirbuf
+	call writesector
+	mov cx, [curdirstsec]
+	mov bx, curdirbuf
+	call readsector			;Возвращаем в буфер директории стартовый адрес и переходим к работе со скрытым файлом
+writesecfile:
+	mov bx, filebuf		;Очищаем буфер файла (будем редактировать скрытый файл с системной информацией, сектор B)
+	mov dx, 512
+	call clear_buf
+	mov bx, filebuf		
+	mov dx, [newfilesec]
+	mov [bx], dx		
+	mov cx, startdir-1
+	call writesector
+	jmp inploop
+dwerror:
+	mov bx, diskwriteerror
+	call print_string
+	jmp inploop
 argerror:
 	mov bx, argnotfounderror
 	call print_string
 	jmp inploop
-fread:
-	mov bx, argbuf
-	mov dx, 13
-	call clear_buf
-	mov si, argbuf
-	mov bx, buffer
-	mov dx, 1
-	call getarg
-	cmp byte[si], 0x00
-	je argerror
+findfileordir:			;Поиск файла в каталоге, принимает в dx указатель на название файла, возвращает в cx указатель на файл (или 0, если файл не найден)
+	push ax
+	push bx
+	push dx
 	mov bx, curdirbuf
 	add bx, 16
-	mov dx, argbuf
 	mov cx, 16
-.searchloop:			;Поиск файла в каталоге
-	push dx
-	mov dx, bx
-;	call print_hex
-	pop dx
+.searchloop:
 	cmp cx, 0x1F0
 	jge .nextpage
 	cmp byte[bx], 0
@@ -341,19 +367,10 @@ fread:
 	jmp .searchloop
 .end:
 	mov cx, word[bx+13]
-	mov dx, cx
-;	call print_hex
-	mov bx, filebuf		;Адрес загрузки данных
-	call readsector
-	cmp byte[bx], 0x00
-	jne .dirorex
-	add bx, 13
-	call print_string
-	call newline
-	mov bx, curdirbuf
-	mov cx, startdir
-	call readsector
-	jmp inploop
+	pop dx
+	pop bx
+	pop ax
+	ret
 .nextpage:
 	mov bx, curdirbuf
 	add bx, 510
@@ -371,16 +388,77 @@ fread:
 	mov cx, 16
 	jmp .searchloop
 .notfound:
-	mov bx, filenotfounderror
+	pop dx
+	pop bx
+	pop ax
+	xor cx, cx
+	ret
+fread:
+	mov bx, argbuf
+	mov dx, 13
+	call clear_buf
+	mov si, argbuf
+	mov bx, buffer
+	mov dx, 1
+	call getarg
+	cmp byte[si], 0x00
+	je argerror
+	mov dx, argbuf
+	call findfileordir
+	cmp cx, 0
+	je notfounderror
+	mov bx, filebuf
+	call readsector
+	cmp byte[bx], 0b0001
+	jne .dirorex
+	add bx, 13
 	call print_string
+	call newline
 	mov bx, curdirbuf
-	mov cx, startdir
+	mov cx, [curdirstsec]
 	call readsector
 	jmp inploop
 .dirorex:
 	mov bx, dirorexerror
 	call print_string
-	call newline
+	jmp inploop
+frun:
+	mov bx, argbuf
+	mov dx, 13
+	call clear_buf
+	mov si, argbuf
+	mov bx, buffer
+	mov dx, 1
+	call getarg
+	cmp byte[si], 0x00
+	je argerror
+	mov dx, argbuf
+	call findfileordir
+	cmp cx, 0
+	je notfounderror
+	mov bx, filebuf		;Адрес загрузки данных
+	call readsector
+	cmp byte[bx], 0x3
+	jne .dirorrd
+	add bx, 13
+	add bx, word[bx]
+	call bx
+;	call bx
+	mov bx, curdirbuf
+	mov cx, [curdirstsec]
+	call readsector
+	jmp inploop
+.dirorrd:
+	mov bx, dirorrderror
+	call print_string
+	jmp inploop
+
+notfounderror:
+	mov bx, filenotfounderror
+	call print_string
+	mov bx, curdirbuf
+	mov cx, [curdirstsec]
+	call readsector
 	jmp inploop
 fdir:
 	mov bx, curdirbuf
@@ -403,7 +481,7 @@ fdir:
 	jmp .loop
 .end:
 	mov bx, curdirbuf
-	mov cx, startdir
+	mov cx, [curdirstsec]
 	call readsector
 	jmp inploop
 .nextpage:
@@ -424,8 +502,56 @@ fdir:
 	mov dx, argbuf
 	mov cx, 16
 	jmp .loop
+fcd:
+	mov bx, argbuf
+	mov dx, 13
+	call clear_buf
+	mov si, argbuf
+	mov bx, buffer
+	mov dx, 1
+	call getarg
+	cmp byte[si], 0x00
+	je argerror
+	mov dx, argbuf
+	call findfileordir
+	cmp cx, 0
+	je notfounderror
+	mov [curdirstsec], cx
+	mov [curdirsec], cx
+	mov bx, filebuf
+	call readsector
+	mov dx, word[bx]
+	cmp byte[bx], 0b0101
+	jne .rdorex
+	mov bx, curdirbuf
+	call readsector
+	jmp inploop
+.rdorex:
+	mov bx, rdorexerror
+	call print_string
+	jmp inploop
+findfreesec:			;Принимает номер сектора в cx, возвращает в cx номер ближайшего доступного сектора
+	push bx
+.loop:
+	mov bx, tmpbuf
+	call readsector
+	jc .error
+	test byte[bx], 1
+	je .found
+	inc cx
+	jmp .loop
+.found:
+	mov [newfilesec], cx
+	pop bx
+	ret
+.error:
+	mov bx, nosecerror
+	call print_string
+	pop bx
+	xor cx, cx
+	ret 
 
-	
+
 %INCLUDE "iolib.asm"
 %INCLUDE "timelib.asm"
 %INCLUDE "mathlib.asm"
@@ -443,9 +569,12 @@ readsec db "readsec", 0x00
 wtext db "wtext", 0x00
 read db "read", 0x00
 dir db "dir", 0x00
-helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, "read *filename* to read a file", 0x0A, 0x0D, "dir to read current directory", 0x0A, 0x0D, 0
-com dw help, readsec, wtext, read, dir, 0x00
-resp dd fhelp, freadsec, fwtext, fread, fdir, 0x00
+run db "run", 0x00
+mkdir db "mkdir", 0x00
+cd db "cd", 0x00
+helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, "read *filename* to read a file", 0x0A, 0x0D, "dir to read current directory", 0x0A, 0x0D, "run *filename* to run an executable file", 0x0A, 0x0D, "mkdir *dirname* to create a directory", 0x0A, 0x0D, "cd *dirname* to change directory you're in", 0x0A, 0x0D, 0
+com dw help, readsec, wtext, read, dir, run, mkdir, cd, 0x00
+resp dd fhelp, freadsec, fwtext, fread, fdir, frun, fmkdir, fcd, 0x00
 unkcmd db "Sorry! Unknown command ", 0x22, 0
 unkcmd2 db 0x22, "!", 0x0A, 0x0D, 0
 readsuccess db "READ SUCCESSFUL!", 0x0A, 0x0D, 0
@@ -453,17 +582,52 @@ diskreaderror db "ERROR! Couldn't read data from disk", 0x0A, 0x0D, 0
 diskwriteerror db "ERROR! Couldn't write data to disk", 0x0A, 0x0D, 0
 argnotfounderror db "ERROR! Necessary argument not found!", 0x0A, 0x0D, 0
 filenotfounderror db "ERROR! File not found!", 0x0A, 0x0D, 0
-dirorexerror db "ERROR! Can't read directory or executable file!", 0x0A, 0x0D, 0
+direxistserror db "ERROR! Directory already exists!", 0x0A, 0x0D, 0
+dirorexerror db "ERROR! Can't read or rewrite directory or executable file!", 0x0A, 0x0D, 0
+dirorrderror db "ERROR! Can't execute directory or readable file!", 0x0A, 0x0D, 0
+rdorexerror db "ERROR! Can't change directory to a file!", 0x0A, 0x0D, 0
+nosecerror db "ERROR! No sectors available!", 0x0A, 0x0D, 0
+rewriting db "Rewriting over an existing file!", 0x0A, 0x0D, 0
 seccount db 0x00
+curdirstsec dw startdir
 curdirsec dw startdir
 newfilesec dw 0x00
-curdirbuf times 512 db 0x00
-filebuf times 512 db 0x00
-times 5632 - ($-$$) db 0
+curdirbuf times 512 db 0x00		;Текущий каталог
+filebuf times 512 db 0x00		;Текущий файл
+tmpbuf times 512 db 0x00
+times 6656 - ($-$$) db 0
 dw startdir+2
-times 6144 - ($-$$) db 0
-db 0x03, '.'			;каталог .
+times 7168 - ($-$$) db 0
+db 0b0101, '.'			;каталог .
 times 11 db 0x00
-db 0x00, 0x0F, 0x00
-times 494 db 0x00
+db 0x00, 0x1E, 0x00
+db 'HELLOWORLD', 0x00, 0x00, 0x00
+dw startdir+1
+times 479 db 0x00
 dw 0x0000
+db 0b0011, 'HELLOWORLD', 0x00, 0x00
+startpoint dw helloworldstart-$
+data db 'Hello, world! From Synagoge OS', 0x0A, 0x0D, 0x00
+helloworldstart:
+	push ax
+	push bx
+	push cx
+	mov ah, 0x0E
+	mov bx, filebuf
+	add bx, 15
+;	mov bx, unkcmd						;Придумать, как записать в bx указатель на локальные данные
+	xor cx, cx
+.loop:
+	mov al, byte[bx]
+	cmp al, 0
+	je .end
+	int 0x10
+	inc cx
+	inc bx
+	jmp .loop
+.end:
+	pop cx
+	pop bx
+	pop ax
+	ret
+
