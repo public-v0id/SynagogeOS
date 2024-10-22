@@ -3,7 +3,7 @@ org 0x7c00			;Загрузчик выгружается в ОЗУ по адре�
 %DEFINE cursor '>'
 %DEFINE bufsize 255
 %DEFINE filebufsize 511
-%DEFINE startdir 0x000F
+%DEFINE startdir 0x000C
 %DEFINE directory 2
 %DEFINE exec 1
 %DEFINE readable 0
@@ -195,7 +195,7 @@ fwtext:
 .wfile:
 	mov dx, 13		;Очистка буферов
 	mov bx, argbuf
-	call clear_buf
+	call clear_buf	
 	mov bx, buffer		;Буфер ввода
 	mov dx, 1
 	mov si, argbuf
@@ -209,13 +209,11 @@ fwtext:
 	mov si, argbuf
 	mov bx, filebuf
 	call setfilename	;В буфер нового файла пишется его название
-	mov dx, 499
-	mov bx, filebuf
-	add bx, 13		;1 байт - флаги, 12 байт - название. Содержимое файла начинается с 13 байта
+	mov dx, 495		;В один сектор вмещается 495 символов
+	lea bx, [filebuf+15]		;1 байт - флаги, 12 байт - название, 2 байта - указатель на предыдущий сектор файла. Содержимое файла начинается с 13 байта
 	call readtext		;Считываем данные с клавиатуры
 	call newline
-	cmp ax, 0x0
-	je dwerror
+	push ax
 ;	mov dx, cx
 ;	call print_hex
 ;	call newline
@@ -228,6 +226,7 @@ fwtext:
 oldsec:				;Перезаписываем старый сектор + вся сопутствующая логика
 	mov bx, rewriting
 	call print_string
+	mov [curfilestsec], cx
 	mov bx, filebuf
 	call writesector	
 	inc cx
@@ -411,7 +410,7 @@ fread:
 	call readsector
 	cmp byte[bx], 0b0001
 	jne .dirorex
-	add bx, 13
+	add bx, 15
 	call print_string
 	call newline
 	mov bx, curdirbuf
@@ -550,6 +549,24 @@ findfreesec:			;Принимает номер сектора в cx, возвра
 	pop bx
 	xor cx, cx
 	ret 
+fbf:
+	mov bx, argbuf
+	mov dx, 13
+	call clear_buf
+	mov si, argbuf
+	mov bx, buffer
+	mov dx, 1
+	call getarg
+	cmp byte[si], 0x00
+	je argerror
+	mov dx, argbuf
+	call findfileordir
+	cmp cx, 0
+	je notfounderror
+	mov bx, filebuf
+	call readsector
+	call bfinter
+	jmp inploop 
 
 
 %INCLUDE "iolib.asm"
@@ -557,12 +574,20 @@ findfreesec:			;Принимает номер сектора в cx, возвра
 %INCLUDE "mathlib.asm"
 %INCLUDE "disklib.asm"
 %INCLUDE "filelib.asm"
+%INCLUDE "bflib.asm"
+
+section .bss
+	buffer resb bufsize+1
+	argbuf resb 13
+	curdirbuf resb 512		;Текущий каталог
+	filebuf resb 512		;Текущий файл
+	tmpbuf resb 512
+
+section .text
 logo db 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, "                                       /\                                       ", "                                      /  \                                      ", "                                _____/____\_____                                ", "                                \   /      \   /                                ", "                                 \ /        \ /                                 ", "                                  \          /                                  ", "                                 / \        / \                                 ", "                                /___\ _____/___\                                ", "                                     \    /                                     ", "                                      \  /                                      ", "                                       \/                                       ", "                     SHALOM FROM SYNAGOGE OS BY PUBLIC_V0ID                     ", 0x00
 inperror db "INPUT ERROR!", 0x00
 shabbat db "SHABBAT SHALOM!", 0x00
 notshabbat db "Got to work today...", 0x00
-buffer times bufsize+1 db 0x00
-argbuf times 13 db 0x00
 hex db "0123456789ABCDEF", 0x00
 help db "help", 0x00
 readsec db "readsec", 0x00
@@ -572,9 +597,10 @@ dir db "dir", 0x00
 run db "run", 0x00
 mkdir db "mkdir", 0x00
 cd db "cd", 0x00
-helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, "read *filename* to read a file", 0x0A, 0x0D, "dir to read current directory", 0x0A, 0x0D, "run *filename* to run an executable file", 0x0A, 0x0D, "mkdir *dirname* to create a directory", 0x0A, 0x0D, "cd *dirname* to change directory you're in", 0x0A, 0x0D, 0
-com dw help, readsec, wtext, read, dir, run, mkdir, cd, 0x00
-resp dd fhelp, freadsec, fwtext, fread, fdir, frun, fmkdir, fcd, 0x00
+bf db "bf", 0x00
+helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, "read *filename* to read a file", 0x0A, 0x0D, "dir to read current directory", 0x0A, 0x0D, "run *filename* to run an executable file", 0x0A, 0x0D, "mkdir *dirname* to create a directory", 0x0A, 0x0D, "cd *dirname* to change directory you're in", 0x0A, 0x0D, "bf *filename* to run a brainfuck program", 0x0A, 0x0D, 0
+com dw help, readsec, wtext, read, dir, run, mkdir, cd, bf, 0x00
+resp dd fhelp, freadsec, fwtext, fread, fdir, frun, fmkdir, fcd, fbf, 0x00
 unkcmd db "Sorry! Unknown command ", 0x22, 0
 unkcmd2 db 0x22, "!", 0x0A, 0x0D, 0
 readsuccess db "READ SUCCESSFUL!", 0x0A, 0x0D, 0
@@ -591,13 +617,11 @@ rewriting db "Rewriting over an existing file!", 0x0A, 0x0D, 0
 seccount db 0x00
 curdirstsec dw startdir
 curdirsec dw startdir
+curfilestsec dw 0x0000
 newfilesec dw 0x00
-curdirbuf times 512 db 0x00		;Текущий каталог
-filebuf times 512 db 0x00		;Текущий файл
-tmpbuf times 512 db 0x00
-times 6656 - ($-$$) db 0
+times (startdir-2)*512-($-$$) db 0
 dw startdir+2
-times 7168 - ($-$$) db 0
+times (startdir-1)*512-($-$$) db 0
 db 0b0101, '.'			;каталог .
 times 11 db 0x00
 db 0x00, 0x1E, 0x00
@@ -608,6 +632,7 @@ dw 0x0000
 db 0b0011, 'HELLOWORLD', 0x00, 0x00
 startpoint dw helloworldstart-$
 data db 'Hello, world! From Synagoge OS', 0x0A, 0x0D, 0x00
+section .text
 helloworldstart:
 	push ax
 	push bx

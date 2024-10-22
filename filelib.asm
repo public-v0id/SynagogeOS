@@ -1,5 +1,6 @@
 %DEFINE fnamelength 12
 
+section .text
 setfilename:		;Принимает в bx указатель на файл, в si - указатель на название
 	push ax
 	push bx
@@ -19,7 +20,7 @@ setfilename:		;Принимает в bx указатель на файл, в si 
 	inc bx
 	inc si
 	jmp .loop
-.end
+.end:
 	pop si
 	pop dx
 	pop bx

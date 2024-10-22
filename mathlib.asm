@@ -52,18 +52,18 @@ day_of_week:		;Вывод в ax
 	call date_to_hex;Шестнадцатиричный вариант последних двух цифр года
 	mov [day], ax
 	mov dx, ax
-	call print_hex
-	call newline
+;	call print_hex
+;	call newline
 	xor dx, dx
 	mov dx, [month]
-	call print_hex
-	call newline
+;	call print_hex
+;	call newline
 	mov dx, [c]
-	call print_hex
-	call newline
+;	call print_hex
+;	call newline
 	mov dx, [y]
-	call print_hex
-	call newline
+;	call print_hex
+;	call newline
 	mov ax, [month]
 	cmp ax, 2
 	jle .janfeb

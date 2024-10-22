@@ -18,6 +18,8 @@
 ;global cls_col
 ;global print_hex
 
+section .text
+
 cls:
 	push ax
 	mov ah, 0x06
@@ -258,7 +260,7 @@ command_equals:		;Принимает два указателя: на введе�
 	je .eq
 	cmp byte[bx], endline
 	je .eq
-.noteq
+.noteq:
 	xor ax, ax
 	pop bx
 	pop si
@@ -341,7 +343,7 @@ hexstrtohex:		;Принимает указатель на строку в bx, в
 	mov dl, byte[bx]
 	sub dx, 'A'
 	add dx, 0xA
-.loopfin
+.loopfin:
 	add ax, dx
 	inc bx
 	jmp .loop
@@ -350,14 +352,14 @@ hexstrtohex:		;Принимает указатель на строку в bx, в
 	pop bx
 	ret
 
-readtext:		;Принимает на вход указатель на буфер в bx, размер буфера в dx. Возвращает в ax результат ввода (0 - ошибка)
+readtext:		;Принимает на вход указатель на буфер в bx, размер буфера в dx. Возвращает в ax результат ввода (0 - нужен новый сектор)
 	call clear_buf
 	push bx
 	push cx
 	xor cx, cx
 .inploop:
 	cmp cx, dx
-	jae .error
+	jae .newsec
 	mov ah, readchar
 	int keyserv_int
 	cmp al, backspace
@@ -390,7 +392,7 @@ readtext:		;Принимает на вход указатель на буфер 
 	dec bx
 	dec cx
 	jmp .inploop
-.error:
+.newsec:
 	pop cx
 	pop bx
 	xor ax, ax
