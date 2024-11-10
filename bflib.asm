@@ -9,13 +9,15 @@ bfinter:		;Принимает в bx указатель на буфер с про
 	push dx
 	push si
 	push di
+;	mov di, bx
+;	mov bx, si
 	mov di, bx
-	mov bx, si
+	mov bx, bfbuf
 	mov dx, bfbufsize
 	call clear_buf
-	mov si, bx
+;	mov si, bx
 	mov bx, di
-	mov [stpos], sp
+	mov word[stpos], sp
 	add bx, 15
 	mov si, bfbuf
 	xor dx, dx
@@ -39,6 +41,13 @@ bfinter:		;Принимает в bx указатель на буфер с про
 	je .beginloop
 	cmp byte[bx], ']'
 	je .endloop
+	cmp byte[bx], 0x0A
+	je .inc
+	cmp byte[bx], 0x0D
+	je .inc
+	cmp byte[bx], ' '
+	je .inc
+	jmp .unknwn
 .inc:
 	inc bx
 	inc cx
@@ -85,18 +94,36 @@ bfinter:		;Принимает в bx указатель на буфер с про
 ;	mov dl, byte[si]
 ;	call print_hex
 ;	call newline
+	cmp sp, [stpos]
+	jle .brackerr
 	cmp byte[si], 0
 	je .finishloop
 	mov di, sp
 	mov bx, word[di+2]
 	mov cx, word[di]
 	jmp .inc
+.unknwn:
+	mov sp, word[stpos]
+	mov bx, bfunknwnsmberror
+	call print_string
+	pop di
+	pop si
+	pop dx
+	pop cx
+	pop bx
+	ret
 .finishloop:
 	pop dx
 	pop dx
 	jmp .inc
 .end:
-	mov sp, [stpos]
+	cmp sp, word[stpos]
+	je .ok
+.brackerr:
+	mov bx, bfbrackerror
+	call print_string
+.ok:
+	mov sp, word[stpos]
 	pop di
 	pop si
 	pop dx
@@ -112,7 +139,9 @@ bfinter:		;Принимает в bx указатель на буфер с про
 
 section .data
 	bfdirorexerror db "ERROR! Interpreter only works with text files!", 0x0A, 0x0D, 0
-	stpos dw 0x0000
-
+	bfunknwnsmberror db "ERROR! Unknown symbol in program! Can use only +-.,[]<>!", 0x0A, 0x0D, 0
+;	bfstackerror db "ERROR! Stack not empty after program interpretation!", 0
+	bfbrackerror db "ERROR! Open and close brackets number doesn't match!", 0
 section .bss
 	bfbuf: resb bfbufsize
+	stpos: resb 2

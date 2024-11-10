@@ -1,11 +1,24 @@
-FILE:
-fnnnnnnnnnnnnd...d
+TEXTFILE:
+fnnnnnnnnnnnnppd...dcc
 f - flags
 n - name
 d - data
+p - previous file sector
+c - next file sector
 DIR:
-fnnnnnnnnnnnneeet...t
+fnnnnnnnnnnnneeet...tpppp
+0123456789ABCDEF
 f - flags
 n - name
 e - end pointer
-t - table (31*16 bytes)
+t - table (N*16 bytes)
+p - pointer to next page
+TABLE:
+nnnnnnnnnnnnpppp
+n - name
+p - pointer
+FLAGS:
+0DEU
+D - directory
+E - executable
+U - used
