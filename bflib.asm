@@ -5,6 +5,7 @@ bfinter:		;Принимает в bx указатель на буфер с про
 	push bx
 	cmp byte[bx], 0b0001
 	jne .dirorex
+	push ax
 	push cx
 	push dx
 	push si
@@ -33,6 +34,8 @@ bfinter:		;Принимает в bx указатель на буфер с про
 	je .minus
 	cmp byte[bx], '.'
 	je .out
+	cmp byte[bx], ','
+	je .in
 	cmp byte[bx], '>'
 	je .next
 	cmp byte[bx], '<'
@@ -52,6 +55,11 @@ bfinter:		;Принимает в bx указатель на буфер с про
 	inc bx
 	inc cx
 	jmp .loop
+.in:
+	call readbyte
+	mov byte[si], al
+	call newline
+	jmp .inc
 .plus:
 	mov dl, byte[si]
 	inc dl
@@ -110,6 +118,7 @@ bfinter:		;Принимает в bx указатель на буфер с про
 	pop si
 	pop dx
 	pop cx
+	pop ax
 	pop bx
 	ret
 .finishloop:
@@ -128,6 +137,7 @@ bfinter:		;Принимает в bx указатель на буфер с про
 	pop si
 	pop dx
 	pop cx
+	pop ax
 	pop bx
 	call newline
 	ret

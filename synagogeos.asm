@@ -3,7 +3,7 @@ org 0x7c00			;Загрузчик выгружается в ОЗУ по адре�
 %DEFINE cursor '>'
 %DEFINE bufsize 255
 %DEFINE filebufsize 511
-%DEFINE startdir 0x000C
+%DEFINE startdir 0x000D
 %DEFINE directory 2
 %DEFINE exec 1
 %DEFINE readable 0
@@ -17,7 +17,7 @@ pre_boot:
 	mov ds, ax		;Зануление регистров
 	mov sp, 0x7c00		;Инициализация стека
 	mov ah, 0x02		;0x02 - работа с жестким диском
-	mov al, 0xC		;Читаем 7 секторов
+	mov al, 0xD		;Читаем 7 секторов
 	mov ch, 0x00		;Номер цилиндра
 	mov cl, 0x02		;Начальный сектор. 1 сектор занимает загрузчик
 	mov dh, 0x00		;Сторона диска
@@ -69,6 +69,13 @@ boot:
 	mov bx, filebuf
 	mov cx, startdir-1
 	call readsector
+	mov dx, [bx+2]
+	cmp dx, 10
+	jl .noboot
+	sub dx, 10
+	mov [bx+2], dx
+	call writesector
+	mov [curmoney], dx
 	mov dx, [bx]
 	mov [newfilesec], dx
 	mov bx, curdirbuf
@@ -85,6 +92,26 @@ boot:
 	jmp inploop
 .reboot:
 	int 0x19
+.noboot:
+	mov bx, booterror
+	call print_string
+.nobootloop:
+	mov dx, 32
+	mov bx, passwordbuf
+	call read_cmd
+	call newline
+	cmp ax, 0x0000
+	je inperror
+	mov dx, password
+	call string_equals
+	cmp ax, 0x1
+	jne .nobootwrong
+	call rightpassword
+	jmp boot
+.nobootwrong:
+	mov bx, passworderror
+	call print_string
+	jmp .nobootloop
 .print_logo:
 	mov bx, logo
 	call print_string
@@ -150,10 +177,14 @@ hexprint:
 	ret
 
 fhelp:
+	mov dx, 5
+	call checkmoney
 	mov bx, helpresp
 	call print_string
 	jmp inploop
 freadsec:
+	mov dx, 20
+	call checkmoney
 	mov bx, argbuf
 	mov dx, 13
 	call clear_buf
@@ -192,6 +223,8 @@ freadsec:
 	call newline
 	jmp inploop
 fwtext:
+	mov dx, 30
+	call checkmoney
 .wfile:
 	mov dx, 13		;Очистка буферов
 	mov bx, argbuf
@@ -234,6 +267,8 @@ oldsec:				;Перезаписываем старый сектор + вся со
 	jc dwerror		;Запись файла в сектор диска. Переходим к работе с директорией
 	jmp writesecfile
 fmkdir:
+	mov dx, 20
+	call checkmoney
 	mov dx, 13		;Очистка буферов
 	mov bx, argbuf
 	call clear_buf
@@ -393,6 +428,8 @@ findfileordir:			;Поиск файла в каталоге, принимает 
 	xor cx, cx
 	ret
 fread:
+	mov dx, 25
+	call checkmoney
 	mov bx, argbuf
 	mov dx, 13
 	call clear_buf
@@ -422,6 +459,8 @@ fread:
 	call print_string
 	jmp inploop
 frun:
+	mov dx, 40
+	call checkmoney
 	mov bx, argbuf
 	mov dx, 13
 	call clear_buf
@@ -460,6 +499,8 @@ notfounderror:
 	call readsector
 	jmp inploop
 fdir:
+	mov dx, 10
+	call checkmoney
 	mov bx, curdirbuf
 	inc bx
 	call print_string
@@ -502,6 +543,8 @@ fdir:
 	mov cx, 16
 	jmp .loop
 fcd:
+	mov dx, 10
+	call checkmoney
 	mov bx, argbuf
 	mov dx, 13
 	call clear_buf
@@ -550,6 +593,8 @@ findfreesec:			;Принимает номер сектора в cx, возвра
 	xor cx, cx
 	ret 
 fbf:
+	mov dx, 50
+	call checkmoney
 	mov bx, argbuf
 	mov dx, 13
 	call clear_buf
@@ -567,6 +612,69 @@ fbf:
 	call readsector
 	call bfinter
 	jmp inploop 
+checkmoney:				;Принимает в dx стоимость операции
+	push ax
+	push bx
+	push cx
+	push dx
+	mov ax, dx
+	mov bx, filebuf
+	mov cx, startdir-1
+	call readsector
+	mov dx, [bx+2]
+	cmp dx, ax
+	jl .error
+	sub dx, ax
+	mov [bx+2], dx
+	call writesector
+	mov [curmoney], dx
+	pop dx
+	pop cx
+	pop bx
+	pop ax
+	ret
+.error:
+	mov bx, nomoneyerror
+	call print_string
+	jmp .passwordloop
+.passwordloop:
+	mov dx, 32
+	mov bx, passwordbuf
+	call read_cmd
+	call newline
+	cmp ax, 0x0000
+	je inperror
+	mov dx, password
+	call string_equals
+	cmp ax, 0x1
+	jne .wrongpassword
+	pop dx
+	pop cx
+	pop bx
+	pop ax
+	call rightpassword
+	ret
+.wrongpassword:
+	mov bx, passworderror
+	call print_string
+	jmp .passwordloop
+rightpassword:
+	push bx
+	push cx
+	push dx
+	mov dx, word[curmoney]
+	add dx, 100
+	mov word[curmoney], dx
+	mov bx, filebuf
+	mov cx, startdir-1
+	call readsector
+	mov [bx+2], dx
+	call writesector 
+	pop dx
+	pop cx
+	pop bx
+	ret
+	
 
 
 %INCLUDE "iolib.asm"
@@ -577,13 +685,16 @@ fbf:
 %INCLUDE "bflib.asm"
 
 section .bss
+	passwordbuf resb 32
 	buffer resb bufsize+1
 	argbuf resb 13
 	curdirbuf resb 512		;Текущий каталог
 	filebuf resb 512		;Текущий файл
 	tmpbuf resb 512
+	curmoney resb 2
 
 section .text
+password db "golovadaideneg", 0
 logo db 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, 0x0A, 0x0D, "                                       /\                                       ", "                                      /  \                                      ", "                                _____/____\_____                                ", "                                \   /      \   /                                ", "                                 \ /        \ /                                 ", "                                  \          /                                  ", "                                 / \        / \                                 ", "                                /___\ _____/___\                                ", "                                     \    /                                     ", "                                      \  /                                      ", "                                       \/                                       ", "                     SHALOM FROM SYNAGOGE OS BY PUBLIC_V0ID                     ", 0x00
 inperror db "INPUT ERROR!", 0x00
 shabbat db "SHABBAT SHALOM!", 0x00
@@ -613,6 +724,9 @@ dirorexerror db "ERROR! Can't read or rewrite directory or executable file!", 0x
 dirorrderror db "ERROR! Can't execute directory or readable file!", 0x0A, 0x0D, 0
 rdorexerror db "ERROR! Can't change directory to a file!", 0x0A, 0x0D, 0
 nosecerror db "ERROR! No sectors available!", 0x0A, 0x0D, 0
+booterror db "ERROR! Couldn't boot! Maybe you're out of money! Try typing a password to get some!", 0x0A, 0x0D, 0
+nomoneyerror db "ERROR! Can't run command! Maybe you're out of money! Try typing a password to get some (or type 'no' to skip password entering)", 0x0A, 0x0D, 0
+passworderror db "Invalid password!", 0x0A, 0x0D, 0
 rewriting db "Rewriting over an existing file!", 0x0A, 0x0D, 0
 seccount db 0x00
 curdirstsec dw startdir
@@ -621,6 +735,7 @@ curfilestsec dw 0x0000
 newfilesec dw 0x00
 times (startdir-2)*512-($-$$) db 0
 dw startdir+2
+dw 0x64
 times (startdir-1)*512-($-$$) db 0
 db 0b0101, '.'			;каталог .
 times 11 db 0x00

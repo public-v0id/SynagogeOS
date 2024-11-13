@@ -150,6 +150,78 @@ read_char:		;Возвращает в ax введенный символ
 	and ax, 0x00FF
 	ret
 
+read_word:		;Принимает на вход указатель на буфер в bx, размер буфера в dx. Возвращает в ax результат ввода (0 - ошибка)
+	call clear_buf
+	push bx
+	push cx
+	xor cx, cx
+.firstletter:
+	mov ah, readchar
+	int keyserv_int
+	cmp al, backspace
+	je .firstletter
+	mov ah, tty
+	int video_int
+	cmp al, tab
+	je .firstletter
+	cmp al, space
+	je .end
+	cmp al, inpend
+	je .end
+	cmp al, endline
+	je .end
+	cmp al, car_ret
+	je .end
+	mov byte[bx], al
+	inc bx
+	inc cx
+.inploop:
+	cmp cx, 0x00
+	je .firstletter
+	cmp cx, dx
+	jae .error
+	mov ah, readchar
+	int keyserv_int
+	cmp al, backspace
+	je .inpbsp
+	mov ah, tty
+	int video_int
+	cmp al, space
+	je .end
+	cmp al, endline
+	je .end
+	cmp al, inpend
+	je .end
+	cmp al, car_ret
+	je .end
+	mov byte[bx], al
+	inc bx
+	inc cx
+	jmp .inploop
+.inpbsp:
+	cmp cx, 0x00
+	je .firstletter
+	mov ah, tty
+	mov al, backspace
+	int video_int
+	mov al, space
+	int video_int
+	mov al, backspace
+	int video_int
+	dec bx
+	dec cx
+	jmp .inploop
+.error:
+	pop cx
+	pop bx
+	xor ax, ax
+	ret
+.end:
+	mov byte[bx], 0x00
+	pop cx
+	pop bx
+	ret
+
 read_cmd:		;Принимает на вход указатель на буфер в bx, размер буфера в dx. Возвращает в ax результат ввода (0 - ошибка)
 	call clear_buf
 	push bx
@@ -426,3 +498,24 @@ printdir:			;Принимает указатель на директорию в 
 	pop bx
 	pop ax
 	ret
+
+readbyte:			;Считывает одно шестнадцатиричное число, возвращает его значение в ax
+	push bx
+	push dx
+	mov bx, iohexbyte
+	mov dx, 3
+	call read_word
+	cmp ax, 0
+	je .error
+	call hexstrtohex
+	pop dx
+	pop bx
+	ret
+.error:
+	mov ax, 0
+	pop dx
+	pop bx
+	ret
+
+section .bss
+	iohexbyte: resb 3

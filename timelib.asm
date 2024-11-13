@@ -1,3 +1,5 @@
+section .text
+
 delay:			;cx:dx - время в микросекундах
 	push ax
 	mov ax, 0x8600
