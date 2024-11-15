@@ -242,10 +242,9 @@ fwtext:
 	mov si, argbuf
 	mov bx, filebuf
 	call setfilename	;В буфер нового файла пишется его название
-	mov dx, 495		;В один сектор вмещается 495 символов
+	mov dx, 2		;В один сектор вмещается 495 символов
 	lea bx, [filebuf+15]		;1 байт - флаги, 12 байт - название, 2 байта - указатель на предыдущий сектор файла. Содержимое файла начинается с 13 байта
 	call readtext		;Считываем данные с клавиатуры
-	call newline
 	push ax
 ;	mov dx, cx
 ;	call print_hex
@@ -372,6 +371,7 @@ writesecfile:
 	mov [bx], dx		
 	mov cx, startdir-1
 	call writesector
+	call newline
 	jmp inploop
 dwerror:
 	mov bx, diskwriteerror
@@ -692,6 +692,9 @@ section .bss
 	filebuf resb 512		;Текущий файл
 	tmpbuf resb 512
 	curmoney resb 2
+	seccount resb 1
+	curfilestsec resb 2
+	newfilesec resb 2
 
 section .text
 password db "golovadaideneg", 0
@@ -728,11 +731,8 @@ booterror db "ERROR! Couldn't boot! Maybe you're out of money! Try typing a pass
 nomoneyerror db "ERROR! Can't run command! Maybe you're out of money! Try typing a password to get some (or type 'no' to skip password entering)", 0x0A, 0x0D, 0
 passworderror db "Invalid password!", 0x0A, 0x0D, 0
 rewriting db "Rewriting over an existing file!", 0x0A, 0x0D, 0
-seccount db 0x00
 curdirstsec dw startdir
 curdirsec dw startdir
-curfilestsec dw 0x0000
-newfilesec dw 0x00
 times (startdir-2)*512-($-$$) db 0
 dw startdir+2
 dw 0x64
@@ -747,7 +747,6 @@ dw 0x0000
 db 0b0011, 'HELLOWORLD', 0x00, 0x00
 startpoint dw helloworldstart-$
 data db 'Hello, world! From Synagoge OS', 0x0A, 0x0D, 0x00
-section .text
 helloworldstart:
 	push ax
 	push bx
