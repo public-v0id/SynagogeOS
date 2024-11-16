@@ -1,5 +1,6 @@
 %DEFINE fnamelength 12
 
+
 section .text
 setfilename:		;Принимает в bx указатель на файл, в si - указатель на название
 	push ax

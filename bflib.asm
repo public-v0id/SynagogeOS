@@ -1,6 +1,15 @@
 %DEFINE bfbufsize 256
 
 section .text
+bfclr:
+	push bx
+	push dx
+	mov bx, bfbuf
+	mov dx, bfbufsize
+	call clear_buf
+	pop dx
+	pop bx
+	ret
 bfinter:		;Принимает в bx указатель на буфер с программой
 	push bx
 	cmp byte[bx], 0b0001

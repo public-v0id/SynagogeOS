@@ -3,7 +3,7 @@ org 0x7c00			;Загрузчик выгружается в ОЗУ по адре�
 %DEFINE cursor '>'
 %DEFINE bufsize 255
 %DEFINE filebufsize 511
-%DEFINE startdir 0x000D
+%DEFINE startdir 0x000E
 %DEFINE directory 2
 %DEFINE exec 1
 %DEFINE readable 0
@@ -17,7 +17,7 @@ pre_boot:
 	mov ds, ax		;Зануление регистров
 	mov sp, 0x7c00		;Инициализация стека
 	mov ah, 0x02		;0x02 - работа с жестким диском
-	mov al, 0xD		;Читаем 7 секторов
+	mov al, startdir		;Читаем 7 секторов
 	mov ch, 0x00		;Номер цилиндра
 	mov cl, 0x02		;Начальный сектор. 1 сектор занимает загрузчик
 	mov dh, 0x00		;Сторона диска
@@ -89,6 +89,9 @@ boot:
 	call day_of_week
 	cmp ax, 0
 	je .reboot
+	mov dx, sp
+	call print_hex
+	call newline
 	jmp inploop
 .reboot:
 	int 0x19
@@ -117,6 +120,7 @@ boot:
 	call print_string
 	ret
 inploop:
+	call floppycheckstatus 
 	mov bx, curdirbuf
 	call printdir
 	mov dx, cursor
@@ -226,6 +230,7 @@ fwtext:
 	mov dx, 30
 	call checkmoney
 .wfile:
+	mov word[curfileprevsec], 0x0000
 	mov dx, 13		;Очистка буферов
 	mov bx, argbuf
 	call clear_buf	
@@ -235,6 +240,10 @@ fwtext:
 	call getarg		;Узнаем название файла
 	cmp byte[si], 0x00
 	je argerror
+	mov dx, argbuf
+	call findfileordir
+	cmp cx, 0
+	jne .fileexists
 	mov dx, 512		
 	mov bx, filebuf
 	call clear_buf
@@ -242,29 +251,25 @@ fwtext:
 	mov si, argbuf
 	mov bx, filebuf
 	call setfilename	;В буфер нового файла пишется его название
-	mov dx, 2		;В один сектор вмещается 495 символов
+.readdata:
+	mov dx, 494		;В один сектор вмещается 495 символов
 	lea bx, [filebuf+15]		;1 байт - флаги, 12 байт - название, 2 байта - указатель на предыдущий сектор файла. Содержимое файла начинается с 13 байта
 	call readtext		;Считываем данные с клавиатуры
 	push ax
+	mov ah, 0x01
+	call writedata
+	pop ax
+	cmp ax, 0
+	je .readdata
+	call newline
+	jmp inploop
 ;	mov dx, cx
 ;	call print_hex
 ;	call newline
-.searchfile:
-	mov dx, argbuf
-	call findfileordir
-	cmp cx, 0
-	je newsec
-	mov [newfilesec], cx
-oldsec:				;Перезаписываем старый сектор + вся сопутствующая логика
-	mov bx, rewriting
+.fileexists:
+	mov bx, fileexistserror
 	call print_string
-	mov [curfilestsec], cx
-	mov bx, filebuf
-	call writesector	
-	inc cx
-	mov [newfilesec], cx
-	jc dwerror		;Запись файла в сектор диска. Переходим к работе с директорией
-	jmp writesecfile
+	jmp inploop
 fmkdir:
 	mov dx, 20
 	call checkmoney
@@ -294,19 +299,41 @@ fmkdir:
 	mov byte[bx+17], '.'
 	mov dx, [curdirstsec]
 	mov word[bx+29], dx
-	jmp newsec
+	mov ah, 0x05
+	call writedata
+	jmp inploop
 .exists:
 	mov bx, direxistserror
 	call print_string
 	jmp inploop
-newsec:				;Новый файл пишется в новый сектор + вся сопутствующая логика
+writedata:			;Вроде как, ничего не принимает
+	mov cx, [curfileprevsec]
+	mov dx, cx
+	cmp cx, 0
+	je .newsec		;Этот сектор - первый сектор файла
+	mov bx, prevfilebuf
+	call readsector
+.newsec:				;Новый файл пишется в новый сектор + вся сопутствующая логика
 	mov cx, [newfilesec]	;Теперь в секторе newfilesec лежит сектор с файлом
 	call findfreesec
 	mov bx, filebuf
+	mov byte[bx], ah
 	call writesector	
+	mov [curfileprevsec], cx
+	cmp dx, 0
+	je .firstsec
+	mov word[prevfilebuf+510], cx
+	mov cx, dx
+	mov bx, prevfilebuf
+	call writesector
+	mov cx, word[curfileprevsec]
 	inc cx
 	mov [newfilesec], cx
-	jc dwerror		;Запись файла в сектор диска. Переходим к работе с директорией
+	jmp .writesecfile
+.firstsec:
+	inc cx
+	mov [newfilesec], cx
+	jc .dwerror		;Запись файла в сектор диска. Переходим к работе с директорией
 .newnextdirloop:			;nextdirloop и запись каталога в случае, если файл записан в новый сектор (в конец каталога надо внести новые данные)
 	cmp word[curdirbuf+14], 0x1E0
 	jle .writetable
@@ -330,7 +357,7 @@ newsec:				;Новый файл пишется в новый сектор + вс
 	mov dx, [curdirbuf+14]	;Записываем место, куда можно будет поместить новый файл в таблице
 	add dx, 0xF
 	mov [curdirbuf+14], dx
-	jmp writecurdir
+	jmp .writecurdir
 .newdir:
 	mov dx, word[newfilesec]
 	mov word[curdirbuf+510], dx
@@ -355,14 +382,14 @@ newsec:				;Новый файл пишется в новый сектор + вс
 	mov dx, [curdirbuf+14]	;Записываем место, куда можно будет поместить новый файл в таблице
 	add dx, 0xF
 	mov [curdirbuf+14], dx
-writecurdir:
+.writecurdir:
 	mov cx, word[curdirsec]		;Записываем сектор с текущей директорией
 	mov bx, curdirbuf
 	call writesector
 	mov cx, [curdirstsec]
 	mov bx, curdirbuf
 	call readsector			;Возвращаем в буфер директории стартовый адрес и переходим к работе со скрытым файлом
-writesecfile:
+.writesecfile:
 	mov bx, filebuf		;Очищаем буфер файла (будем редактировать скрытый файл с системной информацией, сектор B)
 	mov dx, 512
 	call clear_buf
@@ -371,12 +398,11 @@ writesecfile:
 	mov [bx], dx		
 	mov cx, startdir-1
 	call writesector
-	call newline
-	jmp inploop
-dwerror:
+	ret
+.dwerror:
 	mov bx, diskwriteerror
 	call print_string
-	jmp inploop
+	ret
 argerror:
 	mov bx, argnotfounderror
 	call print_string
@@ -444,11 +470,18 @@ fread:
 	cmp cx, 0
 	je notfounderror
 	mov bx, filebuf
+.readandoutloop:
 	call readsector
 	cmp byte[bx], 0b0001
 	jne .dirorex
 	add bx, 15
 	call print_string
+	mov bx, filebuf
+	cmp word[bx+510], 0x0000
+	je .end
+	mov cx, word[bx+510]
+	jmp .readandoutloop
+.end:
 	call newline
 	mov bx, curdirbuf
 	mov cx, [curdirstsec]
@@ -608,9 +641,14 @@ fbf:
 	call findfileordir
 	cmp cx, 0
 	je notfounderror
+	call bfclr
+.iterloop:
 	mov bx, filebuf
 	call readsector
 	call bfinter
+	mov cx, word[bx+510]
+	cmp cx, 0x0000
+	jne .iterloop
 	jmp inploop 
 checkmoney:				;Принимает в dx стоимость операции
 	push ax
@@ -674,7 +712,31 @@ rightpassword:
 	pop cx
 	pop bx
 	ret
-	
+printbuf:
+	push si
+	push dx
+	xor si, si
+	xor dx, dx
+.loop:
+	mov dl, byte[bx+si]
+;	cmp dx, 0x0000
+;	je .next
+;	mov ax, dx
+;	mov dx, bx
+;	call print_hex
+;	xor dx, dx
+;	mov dx, ':'
+;	call print_char
+;	mov dx, ax
+	call print_hex
+;	call newline
+.next:
+	add si, 1
+	cmp si, 512
+	jne .loop
+	pop dx
+	pop si
+	ret
 
 
 %INCLUDE "iolib.asm"
@@ -683,6 +745,7 @@ rightpassword:
 %INCLUDE "disklib.asm"
 %INCLUDE "filelib.asm"
 %INCLUDE "bflib.asm"
+%INCLUDE "floppylib.asm"
 
 section .bss
 	passwordbuf resb 32
@@ -690,11 +753,13 @@ section .bss
 	argbuf resb 13
 	curdirbuf resb 512		;Текущий каталог
 	filebuf resb 512		;Текущий файл
+	prevfilebuf resb 512
 	tmpbuf resb 512
 	curmoney resb 2
 	seccount resb 1
-	curfilestsec resb 2
-	newfilesec resb 2
+	curfileprevsec resb 2		;Начальный сектор текущего файла
+	curfilecursec resb 2		;Текущий сектор текущего файла
+	newfilesec resb 2		;Сектор, куда пишутся данные
 
 section .text
 password db "golovadaideneg", 0
@@ -722,6 +787,7 @@ diskreaderror db "ERROR! Couldn't read data from disk", 0x0A, 0x0D, 0
 diskwriteerror db "ERROR! Couldn't write data to disk", 0x0A, 0x0D, 0
 argnotfounderror db "ERROR! Necessary argument not found!", 0x0A, 0x0D, 0
 filenotfounderror db "ERROR! File not found!", 0x0A, 0x0D, 0
+fileexistserror db "ERROR! File already exists!", 0x0A, 0x0D, 0
 direxistserror db "ERROR! Directory already exists!", 0x0A, 0x0D, 0
 dirorexerror db "ERROR! Can't read or rewrite directory or executable file!", 0x0A, 0x0D, 0
 dirorrderror db "ERROR! Can't execute directory or readable file!", 0x0A, 0x0D, 0

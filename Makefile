@@ -3,7 +3,7 @@
 all: clean SynagogeOS.qcow2 run
 
 run: 
-	qemu-system-x86_64 -drive file=SynagogeOS.qcow2,format=qcow2 -boot d -rtc base="2024-10-11"
+	qemu-system-x86_64 -drive file=SynagogeOS.qcow2,format=qcow2 -boot c -rtc base="2024-10-11" -blockdev driver=file,node-name=f0,filename=floppy.img -device floppy,drive=f0
 
 SynagogeOS.bin:
 	nasm -fbin synagogeos.asm -o SynagogeOS.bin
