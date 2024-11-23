@@ -3,7 +3,7 @@ org 0x7c00			;Загрузчик выгружается в ОЗУ по адре�
 %DEFINE cursor '>'
 %DEFINE bufsize 255
 %DEFINE filebufsize 511
-%DEFINE startdir 0x000E
+%DEFINE startdir 0x000F
 %DEFINE directory 2
 %DEFINE exec 1
 %DEFINE readable 0
@@ -63,24 +63,36 @@ boot:
 	mov dx, 0x00F9
 	call cls_col
 	call .print_logo
+	mov word[basedir], startdir
+	mov word[meta], startdir-1
+	mov word[curdisk], 0x80
 	mov dl, 0x80
 	mov ah, 0x08
 	int 0x13
 	mov bx, filebuf
-	mov cx, startdir-1
+	mov cx, word[meta]
+	push dx
+	mov dx, 0x80
 	call readsector
+	pop dx
 	mov dx, [bx+2]
 	cmp dx, 10
 	jl .noboot
 	sub dx, 10
 	mov [bx+2], dx
+	push dx
+	mov dx, word[curdisk]
 	call writesector
+	pop dx
 	mov [curmoney], dx
 	mov dx, [bx]
 	mov [newfilesec], dx
 	mov bx, curdirbuf
-	mov cx, startdir
+	mov cx, word[basedir]
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	mov byte[seccount], cl
 	mov cx, 0x004C
 	mov dx, 0x4B40
@@ -119,8 +131,7 @@ boot:
 	mov bx, logo
 	call print_string
 	ret
-inploop:
-	call floppycheckstatus 
+inploop: 
 	mov bx, curdirbuf
 	call printdir
 	mov dx, cursor
@@ -188,7 +199,7 @@ fhelp:
 	jmp inploop
 freadsec:
 	mov dx, 20
-	call checkmoney
+;	call checkmoney
 	mov bx, argbuf
 	mov dx, 13
 	call clear_buf
@@ -202,7 +213,10 @@ freadsec:
 	call hexstrtohex	;номер сектора
 	mov cl, al
 	mov bx, filebuf		;Адрес загрузки данных
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	mov bx, readsuccess
 	call print_string
 	xor bx, bx
@@ -282,6 +296,7 @@ fmkdir:
 	call getarg		;Узнаем название директории
 	cmp byte[si], 0x00
 	je argerror
+	mov word[curfileprevsec], 0x0000
 .searchdir:
 	mov dx, argbuf
 	call findfileordir
@@ -312,20 +327,30 @@ writedata:			;Вроде как, ничего не принимает
 	cmp cx, 0
 	je .newsec		;Этот сектор - первый сектор файла
 	mov bx, prevfilebuf
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 .newsec:				;Новый файл пишется в новый сектор + вся сопутствующая логика
 	mov cx, [newfilesec]	;Теперь в секторе newfilesec лежит сектор с файлом
 	call findfreesec
 	mov bx, filebuf
 	mov byte[bx], ah
-	call writesector	
+	push dx
+	mov dx, cx
+	mov dx, word[curdisk]
+	call writesector
+	pop dx	
 	mov [curfileprevsec], cx
 	cmp dx, 0
 	je .firstsec
 	mov word[prevfilebuf+510], cx
 	mov cx, dx
 	mov bx, prevfilebuf
+	push dx
+	mov dx, word[curdisk]
 	call writesector
+	pop dx
 	mov cx, word[curfileprevsec]
 	inc cx
 	mov [newfilesec], cx
@@ -335,6 +360,7 @@ writedata:			;Вроде как, ничего не принимает
 	mov [newfilesec], cx
 	jc .dwerror		;Запись файла в сектор диска. Переходим к работе с директорией
 .newnextdirloop:			;nextdirloop и запись каталога в случае, если файл записан в новый сектор (в конец каталога надо внести новые данные)
+	mov dx, word[curdirbuf+14]
 	cmp word[curdirbuf+14], 0x1E0
 	jle .writetable
 	cmp word[curdirbuf+510], 0x0000
@@ -343,7 +369,10 @@ writedata:			;Вроде как, ничего не принимает
 	mov dx, word[curdirbuf+510]
 	mov cx, dx
 	mov [curdirsec], dx
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	jmp .newnextdirloop
 .writetable:
 	mov bx, curdirbuf	
@@ -363,7 +392,10 @@ writedata:			;Вроде как, ничего не принимает
 	mov word[curdirbuf+510], dx
 	mov cx, word[curdirsec]		;Записываем сектор с текущей директорией
 	mov bx, curdirbuf
+	push dx
+	mov dx, word[curdisk]
 	call writesector
+	pop dx
 	mov word[curdirsec], dx
 	inc dx
 	mov word[newfilesec], dx
@@ -385,19 +417,30 @@ writedata:			;Вроде как, ничего не принимает
 .writecurdir:
 	mov cx, word[curdirsec]		;Записываем сектор с текущей директорией
 	mov bx, curdirbuf
+	push dx
+	mov dx, cx
+	mov dx, word[curdisk]
 	call writesector
+	pop dx
 	mov cx, [curdirstsec]
 	mov bx, curdirbuf
+	push dx
+	mov dx, word[curdisk]
 	call readsector			;Возвращаем в буфер директории стартовый адрес и переходим к работе со скрытым файлом
+	pop dx
 .writesecfile:
-	mov bx, filebuf		;Очищаем буфер файла (будем редактировать скрытый файл с системной информацией, сектор B)
-	mov dx, 512
-	call clear_buf
+	mov bx, filebuf		;Открываем метаданные
+	mov dx, word[curdisk]
+	mov cx, word[meta]
+	call readsector
 	mov bx, filebuf		
 	mov dx, [newfilesec]
 	mov [bx], dx		
-	mov cx, startdir-1
+	mov cx, word[meta]
+	push dx
+	mov dx, word[curdisk]
 	call writesector
+	pop dx
 	ret
 .dwerror:
 	mov bx, diskwriteerror
@@ -442,7 +485,10 @@ findfileordir:			;Поиск файла в каталоге, принимает 
 ;	call print_hex
 ;	call newline
 	mov bx, curdirbuf
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	add bx, 16
 	mov dx, argbuf
 	mov cx, 16
@@ -471,7 +517,10 @@ fread:
 	je notfounderror
 	mov bx, filebuf
 .readandoutloop:
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	cmp byte[bx], 0b0001
 	jne .dirorex
 	add bx, 15
@@ -485,7 +534,10 @@ fread:
 	call newline
 	mov bx, curdirbuf
 	mov cx, [curdirstsec]
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	jmp inploop
 .dirorex:
 	mov bx, dirorexerror
@@ -508,7 +560,10 @@ frun:
 	cmp cx, 0
 	je notfounderror
 	mov bx, filebuf		;Адрес загрузки данных
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	cmp byte[bx], 0x3
 	jne .dirorrd
 	add bx, 13
@@ -517,7 +572,10 @@ frun:
 ;	call bx
 	mov bx, curdirbuf
 	mov cx, [curdirstsec]
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	jmp inploop
 .dirorrd:
 	mov bx, dirorrderror
@@ -529,7 +587,10 @@ notfounderror:
 	call print_string
 	mov bx, curdirbuf
 	mov cx, [curdirstsec]
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	jmp inploop
 fdir:
 	mov dx, 10
@@ -555,7 +616,10 @@ fdir:
 .end:
 	mov bx, curdirbuf
 	mov cx, [curdirstsec]
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	jmp inploop
 .nextpage:
 	mov bx, curdirbuf
@@ -567,10 +631,11 @@ fdir:
 ;	call newline
 	cmp word[bx], 0x0000
 	je .end
-	mov cx, word[bx]
-	mov dx, cx
-	mov bx, curdirbuf
+	mov cx, curdirbuf
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	add bx, 16
 	mov dx, argbuf
 	mov cx, 16
@@ -594,12 +659,18 @@ fcd:
 	mov [curdirstsec], cx
 	mov [curdirsec], cx
 	mov bx, filebuf
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	mov dx, word[bx]
 	cmp byte[bx], 0b0101
 	jne .rdorex
 	mov bx, curdirbuf
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	jmp inploop
 .rdorex:
 	mov bx, rdorexerror
@@ -609,7 +680,10 @@ findfreesec:			;Принимает номер сектора в cx, возвра
 	push bx
 .loop:
 	mov bx, tmpbuf
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	jc .error
 	test byte[bx], 1
 	je .found
@@ -644,7 +718,10 @@ fbf:
 	call bfclr
 .iterloop:
 	mov bx, filebuf
+	push dx
+	mov dx, word[curdisk]
 	call readsector
+	pop dx
 	call bfinter
 	mov cx, word[bx+510]
 	cmp cx, 0x0000
@@ -658,14 +735,16 @@ checkmoney:				;Принимает в dx стоимость операции
 	mov ax, dx
 	mov bx, filebuf
 	mov cx, startdir-1
+	mov dx, 0x80
 	call readsector
 	mov dx, [bx+2]
 	cmp dx, ax
 	jl .error
 	sub dx, ax
-	mov [bx+2], dx
-	call writesector
 	mov [curmoney], dx
+	mov word[bx+2], dx
+	mov dx, 0x80
+	call writesector
 	pop dx
 	pop cx
 	pop bx
@@ -705,9 +784,15 @@ rightpassword:
 	mov word[curmoney], dx
 	mov bx, filebuf
 	mov cx, startdir-1
+	push dx
+	mov dx, 0x80
 	call readsector
+	pop dx
 	mov [bx+2], dx
+	push dx
+	mov dx, word[curdisk]
 	call writesector 
+	pop dx
 	pop dx
 	pop cx
 	pop bx
@@ -737,7 +822,85 @@ printbuf:
 	pop dx
 	pop si
 	ret
-
+fchdsk:
+	mov dx, 30
+	call checkmoney
+	mov bx, argbuf
+	mov dx, 13
+	call clear_buf
+	mov si, argbuf
+	mov bx, buffer
+	mov dx, 1
+	call getarg
+	cmp byte[si], 0x00
+	je argerror
+	mov bx, argbuf
+	call hexstrtohex	;номер сектора
+	mov word[curdisk], ax
+	cmp ax, 0x80
+	je .maindsk
+	mov word[basedir], 0x2
+	mov word[meta], 0x1
+	mov word[curdirsec], 0x2
+	mov word[curdirstsec], 0x2
+	jmp .loadstartdir
+.maindsk:
+	mov word[basedir], startdir
+	mov word[meta], startdir-1
+	mov word[curdirsec], startdir
+	mov word[curdirstsec], startdir
+.loadstartdir:
+	mov dx, word[curdisk]
+	mov bx, curdirbuf
+	mov cx, word[meta]
+	call readsector
+	push dx
+	mov dl, byte[bx]
+	mov [newfilesec], dl
+	pop dx
+	mov cx, word[basedir]
+	call readsector
+	jmp inploop
+fformat:
+	mov dx, 30
+	call checkmoney
+	mov bx, argbuf
+	mov dx, 13
+	call clear_buf
+	mov si, argbuf
+	mov bx, buffer
+	mov dx, 1
+	call getarg
+	cmp byte[si], 0x00
+	je argerror
+	mov bx, argbuf
+	call hexstrtohex	;номер сектора
+	mov dx, 512
+	mov bx, filebuf
+	call clear_buf
+	mov dx, ax
+	mov cx, 1
+	mov word[bx], 0x0002
+	call writesector
+	inc cx
+	mov byte[bx], 0x5
+	mov byte[bx+1], 'A'
+	mov byte[bx+2], ':'
+	mov byte[bx+14], 0x0F
+	call writesector
+	push dx
+	mov dx, 512
+	call clear_buf
+	pop dx
+.deleteloop:
+	inc cx
+	cmp cx, 2880
+	jl .end
+	call writesector
+	jmp .deleteloop
+.end:
+	jmp inploop
+	
 
 %INCLUDE "iolib.asm"
 %INCLUDE "timelib.asm"
@@ -745,7 +908,6 @@ printbuf:
 %INCLUDE "disklib.asm"
 %INCLUDE "filelib.asm"
 %INCLUDE "bflib.asm"
-%INCLUDE "floppylib.asm"
 
 section .bss
 	passwordbuf resb 32
@@ -760,6 +922,8 @@ section .bss
 	curfileprevsec resb 2		;Начальный сектор текущего файла
 	curfilecursec resb 2		;Текущий сектор текущего файла
 	newfilesec resb 2		;Сектор, куда пишутся данные
+	basedir resb 2			;Номер сектора, где начинается базовая директория
+	meta resb 2			;Номер сектора, где лежат метаданные диска
 
 section .text
 password db "golovadaideneg", 0
@@ -777,9 +941,11 @@ run db "run", 0x00
 mkdir db "mkdir", 0x00
 cd db "cd", 0x00
 bf db "bf", 0x00
-helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, "read *filename* to read a file", 0x0A, 0x0D, "dir to read current directory", 0x0A, 0x0D, "run *filename* to run an executable file", 0x0A, 0x0D, "mkdir *dirname* to create a directory", 0x0A, 0x0D, "cd *dirname* to change directory you're in", 0x0A, 0x0D, "bf *filename* to run a brainfuck program", 0x0A, 0x0D, 0
-com dw help, readsec, wtext, read, dir, run, mkdir, cd, bf, 0x00
-resp dd fhelp, freadsec, fwtext, fread, fdir, frun, fmkdir, fcd, fbf, 0x00
+chdsk db "chdsk", 0x00
+format db "format", 0x00
+helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, "read *filename* to read a file", 0x0A, 0x0D, "dir to read current directory", 0x0A, 0x0D, "run *filename* to run an executable file", 0x0A, 0x0D, "mkdir *dirname* to create a directory", 0x0A, 0x0D, "cd *dirname* to change directory you're in", 0x0A, 0x0D, "bf *filename* to run a brainfuck program", 0x0A, 0x0D, "chdsk *disk hexagonal number* to change disk", 0x0A, 0x0D, 0
+com dw help, readsec, wtext, read, dir, run, mkdir, cd, bf, chdsk, format, 0x00
+resp dd fhelp, freadsec, fwtext, fread, fdir, frun, fmkdir, fcd, fbf, fchdsk, fformat, 0x00
 unkcmd db "Sorry! Unknown command ", 0x22, 0
 unkcmd2 db 0x22, "!", 0x0A, 0x0D, 0
 readsuccess db "READ SUCCESSFUL!", 0x0A, 0x0D, 0
@@ -801,11 +967,11 @@ curdirstsec dw startdir
 curdirsec dw startdir
 times (startdir-2)*512-($-$$) db 0
 dw startdir+2
-dw 0x64
+dw 0x100
 times (startdir-1)*512-($-$$) db 0
-db 0b0101, '.'			;каталог .
+db 0b0101, "C:"			;Стартовый каталог диска C
 times 11 db 0x00
-db 0x00, 0x1E, 0x00
+db 0x1E, 0x00
 db 'HELLOWORLD', 0x00, 0x00, 0x00
 dw startdir+1
 times 479 db 0x00
