@@ -26,11 +26,15 @@ writesector:			;Принимает в bx адрес буфера, номер ц�
 	pop ax
 	ret
 .printerr:
-	push bx
-	mov bx, diskwriteerror 
-	call print_string
+	push dx
+	mov dx, cx
+	call print_hex
+	pop dx
+;	push bx
+;	mov bx, diskwriteerror 
+;	call print_string
 	call newline
-	pop bx
+;	pop bx
 	pop ax
 	ret
 

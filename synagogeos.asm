@@ -894,13 +894,18 @@ fformat:
 	pop dx
 .deleteloop:
 	inc cx
+	cmp cl, 0x12
+	jg .nextcyl
 	cmp cx, 2880
-	jl .end
+	jg .end
 	call writesector
 	jmp .deleteloop
 .end:
 	jmp inploop
-	
+.nextcyl:
+	mov cl, 0x00
+	inc ch
+	jmp .deleteloop
 
 %INCLUDE "iolib.asm"
 %INCLUDE "timelib.asm"
@@ -943,7 +948,7 @@ cd db "cd", 0x00
 bf db "bf", 0x00
 chdsk db "chdsk", 0x00
 format db "format", 0x00
-helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, "read *filename* to read a file", 0x0A, 0x0D, "dir to read current directory", 0x0A, 0x0D, "run *filename* to run an executable file", 0x0A, 0x0D, "mkdir *dirname* to create a directory", 0x0A, 0x0D, "cd *dirname* to change directory you're in", 0x0A, 0x0D, "bf *filename* to run a brainfuck program", 0x0A, 0x0D, "chdsk *disk hexagonal number* to change disk", 0x0A, 0x0D, 0
+helpresp db "You can type:", 0x0A, 0x0D, "help to get help with cmd", 0x0A, 0x0D, "readsec *sector number [1-FF]* to try reading sector", 0x0A, 0x0D, "wtext *filename* to create a text file and fill it", 0x0A, 0x0D, "read *filename* to read a file", 0x0A, 0x0D, "dir to read current directory", 0x0A, 0x0D, "run *filename* to run an executable file", 0x0A, 0x0D, "mkdir *dirname* to create a directory", 0x0A, 0x0D, "cd *dirname* to change directory you're in", 0x0A, 0x0D, "bf *filename* to run a brainfuck program", 0x0A, 0x0D, "chdsk *disk hexagonal number* to change disk", 0x0A, 0x0D, "format *disk hexagonal number* to format disk", 0x0A, 0x0D, 0
 com dw help, readsec, wtext, read, dir, run, mkdir, cd, bf, chdsk, format, 0x00
 resp dd fhelp, freadsec, fwtext, fread, fdir, frun, fmkdir, fcd, fbf, fchdsk, fformat, 0x00
 unkcmd db "Sorry! Unknown command ", 0x22, 0
