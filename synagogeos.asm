@@ -768,24 +768,14 @@ rightpassword:				;Начисление денег в случае правил�
 	pop cx
 	pop bx
 	ret
-printbuf:				;Вспомогательная функция вывода буффера
+printbuf:				;Вспомогательная функция вывода буфера
 	push si
 	push dx
 	xor si, si
 	xor dx, dx
 .loop:
 	mov dl, byte[bx+si]
-;	cmp dx, 0x0000
-;	je .next
-;	mov ax, dx
-;	mov dx, bx
-;	call print_hex
-;	xor dx, dx
-;	mov dx, ':'
-;	call print_char
-;	mov dx, ax
 	call print_hex
-;	call newline
 .next:
 	add si, 1
 	cmp si, 512
