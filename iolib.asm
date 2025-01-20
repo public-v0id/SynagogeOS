@@ -9,18 +9,9 @@
 %DEFINE readchar 0x00
 %DEFINE backspace 0x08
 %DEFINE esc 0x11B
-;global set_videomode
-;global cls
-;global newline
-;global print_char
-;global print_string
-;global clear_buf
-;global cls_col
-;global print_hex
-
 section .text
 
-cls:
+cls:			;Очистка экрана
 	push ax
 	mov ah, 0x06
 	xor al, al	;Очистка экрана
@@ -35,7 +26,7 @@ cls:
 	pop ax
 	ret
 
-cls_col:		;Принимает цвет в dl
+cls_col:		;Очистка экрана, Принимает цвет в dl
 	push ax
 	mov ah, 0x06
 	xor al, al	;Очистка экрана
@@ -51,7 +42,7 @@ cls_col:		;Принимает цвет в dl
 	ret
 
 
-set_videomode:
+set_videomode:		;Установка видеорежима
 	push ax		;Функция возвращает в AL флаги режима, нам они нужны меньше, чем содержимое аккумулятора
 	xor ah, ah	;Установка режима вывода
 	mov al, 0x03	;Режим вывода 80*25 символов
@@ -59,7 +50,7 @@ set_videomode:
 	pop ax
 	ret
 
-newline:
+newline:		;Перевод на новую строку
 	push ax
 	mov ah, 0x0E	;Teletype output
 	mov al, endline	;\n
@@ -198,7 +189,7 @@ read_word:		;Принимает на вход указатель на буфер
 	inc bx
 	inc cx
 	jmp .inploop
-.inpbsp:
+.inpbsp:			;Обработка нажатия клавиши backspace
 	cmp cx, 0x00
 	je .firstletter
 	mov ah, tty

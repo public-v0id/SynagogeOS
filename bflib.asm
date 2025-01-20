@@ -1,7 +1,7 @@
 %DEFINE bfbufsize 256
 
 section .text
-bfclr:
+bfclr:			;Очистка буфера brainfuck
 	push bx
 	push dx
 	mov bx, bfbuf
@@ -159,7 +159,6 @@ bfinter:		;Принимает в bx указатель на буфер с про
 section .data
 	bfdirorexerror db "ERROR! Interpreter only works with text files!", 0x0A, 0x0D, 0
 	bfunknwnsmberror db "ERROR! Unknown symbol in program! Can use only +-.,[]<>!", 0x0A, 0x0D, 0
-;	bfstackerror db "ERROR! Stack not empty after program interpretation!", 0
 	bfbrackerror db "ERROR! Open and close brackets number doesn't match!", 0
 section .bss
 	bfbuf: resb bfbufsize

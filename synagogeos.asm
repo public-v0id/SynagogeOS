@@ -9,7 +9,7 @@ org 0x7c00			;Загрузчик выгружается в ОЗУ по адре�
 %DEFINE readable 0
 jmp pre_boot
 
-pre_boot:
+pre_boot:			;Код загрузчика ОС
 	cli			;Запрет прерываний
 	xor ax, ax
 	mov ds, ax
@@ -17,7 +17,7 @@ pre_boot:
 	mov ds, ax		;Зануление регистров
 	mov sp, 0x7c00		;Инициализация стека
 	mov ah, 0x02		;0x02 - работа с жестким диском
-	mov al, startdir		;Читаем 7 секторов
+	mov al, startdir	;Читаем сектора, на которые записана ОС (их столько число равно номеру сектора со стартовой директорией)
 	mov ch, 0x00		;Номер цилиндра
 	mov cl, 0x02		;Начальный сектор. 1 сектор занимает загрузчик
 	mov dh, 0x00		;Сторона диска
@@ -27,7 +27,7 @@ pre_boot:
 	jc read_err		;Обработка ошибки
 	jmp 0x7e00		;Перейти к выполнению кода ОС
 
-read_err:
+read_err:			;Произошла ошибка считывания секторов при загрузке системы
 	mov ah, 0x0e		;Номер функции вывода символа на экран
 	mov al, 'R'
 	int 0x10
@@ -56,54 +56,48 @@ read_err:
 times 510 - ($ - $$) db 0	;Длина текущего кода. Сегмент размером 512 байт, из них 2 байта - указатель на загрузочный сектор
 dw 0xaa55			;Указатель на загрузочный сектор
 
-jmp boot
+jmp boot			;Переход к коду ОС
 
-boot:
-	call set_videomode
+boot:				;Функция загрузки операционной системы
+	call set_videomode	;Настройка видеовывода
 	mov dx, 0x00F9
-	call cls_col
-	call .print_logo
-	mov word[basedir], startdir
+	call cls_col		;Очистка экрана
+	call .print_logo	;Вывод логотипа системы
+	mov word[basedir], startdir	
 	mov word[meta], startdir-1
-	mov word[curdisk], 0x80
-	mov dl, 0x80
-	mov ah, 0x08
-	int 0x13
-	mov bx, filebuf
+	mov word[curdisk], 0x80		;Заполнение указателей на текущую директорию, метаданные и текущий диск
+	mov bx, filebuf			
 	mov cx, word[meta]
 	push dx
-	mov dx, 0x80
-	call readsector
+	mov dx, [curdisk]
+	call readsector			;Сектор с метаданными выписывается в буфер файлов
 	pop dx
-	mov dx, [bx+2]
+	mov dx, [bx+2]			
 	cmp dx, 10
-	jl .noboot
-	sub dx, 10
+	jl .noboot			;Если у пользователя меньше 10 шекелей, система не заходит дальше вывода логотипа и требований пароля
+	sub dx, 10			;Иначе у пользователя снимают шекели
 	mov [bx+2], dx
 	push dx
 	mov dx, word[curdisk]
-	call writesector
+	call writesector		;И записывают информацию об этом в метаданные
 	pop dx
 	mov [curmoney], dx
 	mov dx, [bx]
-	mov [newfilesec], dx
-	mov bx, curdirbuf
+	mov [newfilesec], dx		;Выписываются количество денег у пользователя и указатель на первый незанятый сектор диска
+	mov bx, curdirbuf		
 	mov cx, word[basedir]
 	push dx
 	mov dx, word[curdisk]
-	call readsector
+	call readsector			;Считывается сектор со стартовой директорией диска
 	pop dx
 	mov byte[seccount], cl
 	mov cx, 0x004C
 	mov dx, 0x4B40
-	call delay
+	call delay			;Включается "таймер", по истечение которого, заставка закончится
 	call cls
-	call day_of_week
-	cmp ax, 0
-	je .reboot
-	mov dx, sp
-	call print_hex
-	call newline
+	call day_of_week		;Высчитывается сегодняшний день недели
+	cmp ax, 0			
+	je .reboot			;Если это суббота (вышел 0), то система отправляется на перезагрузку
 	jmp inploop
 .reboot:
 	int 0x19
@@ -131,23 +125,23 @@ boot:
 	mov bx, logo
 	call print_string
 	ret
-inploop: 
+inploop:				;Основной цикл системы - цикл ввода-вывода команд 
 	mov bx, curdirbuf
 	call printdir
 	mov dx, cursor
-	call print_char
+	call print_char			;Выводим название текущей директории и символ курсора
 	mov dx, bufsize
 	mov bx, buffer
-	call read_cmd
+	call read_cmd			;Считываем команду в специальный буфер ввода
 	call newline
-	cmp ax, 0x0000
+	cmp ax, 0x0000			;Если команда превысила лимит символов, выводим ошибку
 	je inperror
-.checkcmd:
+.checkcmd:				;Проверка, правильно ли введена команда
 	xor si, si
-.checkloop:
+.checkloop:				;Проход по массиву указателей на команды (соответствующие им строки)
 	mov dx, [com+si]
 	cmp dx, 0x0
-	je .unknowncmd
+	je .unknowncmd			;Если ничего не нашлось - выводим ошибку
 	call command_equals
 	cmp ax, 0x1
 	je .getresp
@@ -157,7 +151,7 @@ inploop:
 	mov bx, resp
 	add bx, si
 	add bx, si
-	jmp dword[bx]
+	jmp dword[bx]			;Команда нашлась - переходим по адресу из массива указателей на функции с тем же отступом, что и в массиве указателей на строки
 .inperror:
 	mov bx, inperror
 	call print_string
@@ -171,7 +165,7 @@ inploop:
 	mov bx, unkcmd2
 	call print_string
 	jmp inploop
-hexprint:
+hexprint:				;Вывод массива данных в шестнадцатиричном формате
 	push bx
 	push cx
 	push dx	
@@ -191,26 +185,26 @@ hexprint:
 	pop bx
 	ret
 
-fhelp:
+fhelp:					;Команда help выводит строку из памяти
 	mov dx, 5
 	call checkmoney
 	mov bx, helpresp
 	call print_string
 	jmp inploop
-freadsec:
+freadsec:				;Команда readsec считывает с диска сектор данных и выводит его содержимое в шестнадцатиричном формате
 	mov dx, 20
-;	call checkmoney
+	call checkmoney
 	mov bx, argbuf
 	mov dx, 13
 	call clear_buf
 	mov si, argbuf
 	mov bx, buffer
 	mov dx, 1
-	call getarg
+	call getarg			;Получение аргумента номер 1 (номер сектора)
 	cmp byte[si], 0x00
 	je argerror
 	mov bx, argbuf
-	call hexstrtohex	;номер сектора
+	call hexstrtohex	;Номер сектора
 	mov cl, al
 	mov bx, filebuf		;Адрес загрузки данных
 	push dx
@@ -223,24 +217,14 @@ freadsec:
 	xor dx, dx
 .loop:
 	mov dl, byte[filebuf+bx]
-;	cmp dx, 0x0000
-;	je .next
-;	mov ax, dx
-;	mov dx, bx
-;	call print_hex
-;	xor dx, dx
-;	mov dx, ':'
-;	call print_char
-;	mov dx, ax
 	call print_hex
-;	call newline
 .next:
 	add bx, 1
 	cmp bx, 512
 	jne .loop
 	call newline
 	jmp inploop
-fwtext:
+fwtext:					;Команда wtext осуществляет запись текстового файла
 	mov dx, 30
 	call checkmoney
 .wfile:
@@ -277,9 +261,6 @@ fwtext:
 	je .readdata
 	call newline
 	jmp inploop
-;	mov dx, cx
-;	call print_hex
-;	call newline
 .fileexists:
 	mov bx, fileexistserror
 	call print_string
@@ -321,7 +302,7 @@ fmkdir:
 	mov bx, direxistserror
 	call print_string
 	jmp inploop
-writedata:			;Вроде как, ничего не принимает
+writedata:			;Запись данных, определяет, нужно ли выделять новый сектор, записывает файл/директорию, а также метаинформацию
 	mov cx, [curfileprevsec]
 	mov dx, cx
 	cmp cx, 0
@@ -446,7 +427,7 @@ writedata:			;Вроде как, ничего не принимает
 	mov bx, diskwriteerror
 	call print_string
 	ret
-argerror:
+argerror:				;Не найден нужный аргумент
 	mov bx, argnotfounderror
 	call print_string
 	jmp inploop
@@ -480,10 +461,6 @@ findfileordir:			;Поиск файла в каталоге, принимает 
 	cmp word[bx], 0x0000
 	je .notfound
 	mov cx, word[bx]
-;	mov dx, cx
-;	call newline
-;	call print_hex
-;	call newline
 	mov bx, curdirbuf
 	push dx
 	mov dx, word[curdisk]
@@ -499,7 +476,7 @@ findfileordir:			;Поиск файла в каталоге, принимает 
 	pop ax
 	xor cx, cx
 	ret
-fread:
+fread:					;Команда read читает текстовый файл
 	mov dx, 25
 	call checkmoney
 	mov bx, argbuf
@@ -514,7 +491,7 @@ fread:
 	mov dx, argbuf
 	call findfileordir
 	cmp cx, 0
-	je notfounderror
+	je notfounderror		;Если файл не был найден - выводит ошибку
 	mov bx, filebuf
 .readandoutloop:
 	push dx
@@ -522,13 +499,13 @@ fread:
 	call readsector
 	pop dx
 	cmp byte[bx], 0b0001
-	jne .dirorex
+	jne .dirorex			;Если первый байт - не 1, то это либо исполняемый файл, либо каталог
 	add bx, 15
 	call print_string
 	mov bx, filebuf
 	cmp word[bx+510], 0x0000
 	je .end
-	mov cx, word[bx+510]
+	mov cx, word[bx+510]		;Если в конце сектора есть указатель на следующий - то переходим к нему
 	jmp .readandoutloop
 .end:
 	call newline
@@ -542,8 +519,8 @@ fread:
 .dirorex:
 	mov bx, dirorexerror
 	call print_string
-	jmp inploop
-frun:
+	jmp inploop	
+frun:					;Команда run запускает исполняемый файл
 	mov dx, 40
 	call checkmoney
 	mov bx, argbuf
@@ -559,17 +536,16 @@ frun:
 	call findfileordir
 	cmp cx, 0
 	je notfounderror
-	mov bx, filebuf		;Адрес загрузки данных
+	mov bx, filebuf		;Содержимое файла считывается в filebuf
 	push dx
 	mov dx, word[curdisk]
 	call readsector
 	pop dx
-	cmp byte[bx], 0x3
+	cmp byte[bx], 0x3	;Если в начале файла не тройка - то это либо директория, либо тектовый файл
 	jne .dirorrd
-	add bx, 13
+	add bx, 13		;После типа файла и его названия лежит указатель на то, через сколько бит начинается секция .text
 	add bx, word[bx]
-	call bx
-;	call bx
+	call bx			;Переходим к исполнению файла
 	mov bx, curdirbuf
 	mov cx, [curdirstsec]
 	push dx
@@ -592,7 +568,7 @@ notfounderror:
 	call readsector
 	pop dx
 	jmp inploop
-fdir:
+fdir:				;Команда dir выводит содержимое текущего каталога
 	mov dx, 10
 	call checkmoney
 	mov bx, curdirbuf
@@ -610,7 +586,7 @@ fdir:
 	mov dx, cx
 	call print_string
 	call newline
-	add bx, 15
+	add bx, 15		;Запись об одном файле в каталоге занимет 15 байт
 	add cx, 15
 	jmp .loop
 .end:
@@ -621,14 +597,9 @@ fdir:
 	call readsector
 	pop dx
 	jmp inploop
-.nextpage:
+.nextpage:			;Переход к новому сектору каталога
 	mov bx, curdirbuf
 	add bx, 510
-;	mov dx, word[bx]
-;	call newline
-;	call print_hex
-;	call newline
-;	call newline
 	cmp word[bx], 0x0000
 	je .end
 	mov cx, curdirbuf
@@ -640,7 +611,7 @@ fdir:
 	mov dx, argbuf
 	mov cx, 16
 	jmp .loop
-fcd:
+fcd:				;Команда cd меняет текущий каталог на один из тех, что находится в текущем (глубина - 1 уровень)
 	mov dx, 10
 	call checkmoney
 	mov bx, argbuf
@@ -699,7 +670,7 @@ findfreesec:			;Принимает номер сектора в cx, возвра
 	pop bx
 	xor cx, cx
 	ret 
-fbf:
+fbf:				;Команда bf запускает встроенный интерпретатор языка BrainFuck, исполняет код, записанный в текстовый файл
 	mov dx, 50
 	call checkmoney
 	mov bx, argbuf
@@ -775,7 +746,7 @@ checkmoney:				;Принимает в dx стоимость операции
 	mov bx, passworderror
 	call print_string
 	jmp .passwordloop
-rightpassword:
+rightpassword:				;Начисление денег в случае правильного пароля
 	push bx
 	push cx
 	push dx
@@ -797,7 +768,7 @@ rightpassword:
 	pop cx
 	pop bx
 	ret
-printbuf:
+printbuf:				;Вспомогательная функция вывода буффера
 	push si
 	push dx
 	xor si, si
@@ -822,7 +793,7 @@ printbuf:
 	pop dx
 	pop si
 	ret
-fchdsk:
+fchdsk:					;Функция chdsk меняет текущий диск на указанный в качестве аргумента
 	mov dx, 30
 	call checkmoney
 	mov bx, argbuf
@@ -844,7 +815,7 @@ fchdsk:
 	mov word[curdirsec], 0x2
 	mov word[curdirstsec], 0x2
 	jmp .loadstartdir
-.maindsk:
+.maindsk:				;0x80 - основной жесткий диск
 	mov word[basedir], startdir
 	mov word[meta], startdir-1
 	mov word[curdirsec], startdir
@@ -861,7 +832,7 @@ fchdsk:
 	mov cx, word[basedir]
 	call readsector
 	jmp inploop
-fformat:
+fformat:				;Функция format форматирует диск под работу с SynagogeOS
 	mov dx, 30
 	call checkmoney
 	mov bx, argbuf
@@ -991,7 +962,6 @@ helloworldstart:
 	mov ah, 0x0E
 	mov bx, filebuf
 	add bx, 15
-;	mov bx, unkcmd						;Придумать, как записать в bx указатель на локальные данные
 	xor cx, cx
 .loop:
 	mov al, byte[bx]
